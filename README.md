@@ -25,6 +25,12 @@ static/css/style.css
 static/js/gallery.js
 ```
 
+## Conventions
+
+- Code: `docs/CODE_CONVENTION.md`
+- GitHub: `.github/GITHUB_CONVENTION.md`
+- Contribution Guide: `CONTRIBUTING.md`
+
 ## Data Format
 
 `data/projects.json`에 전시 프로젝트를 배열로 저장합니다.
