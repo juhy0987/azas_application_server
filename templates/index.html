@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Projects Display Museum</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="background-glow"></div>
+  <header class="hero">
+    <p class="badge">FASTAPI 3D EXHIBITION</p>
+    <h1>Projects Display Museum</h1>
+    <p class="hero-copy">
+      마크다운 기반 전시 설명을 중심으로, 이미지와 Notion 페이지를 함께 보여주는 3D 형태 전시장입니다.
+    </p>
+  </header>
+
+  <main>
+    <section class="scene-wrap">
+      <div id="gallery" class="gallery-3d" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <template id="project-card-template">
+    <article class="project-card">
+      <div class="card-face card-front">
+        <h2 class="project-title"></h2>
+        <p class="project-subtitle"></p>
+        <button class="toggle-btn" type="button">View Detail</button>
+      </div>
+      <div class="card-face card-back">
+        <div class="markdown-body"></div>
+        <div class="media-zone">
+          <img class="project-image" alt="project preview" loading="lazy" />
+          <iframe class="notion-frame" title="Notion page preview" loading="lazy"></iframe>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/static/js/gallery.js" defer></script>
+</body>
+</html>

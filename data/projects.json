@@ -1,0 +1,26 @@
+[
+  {
+    "id": "p1",
+    "title": "Ocean Data Sculpture",
+    "subtitle": "3D climate storytelling",
+    "markdown": "# Ocean Data Sculpture\n\n지구 해양 온도 변화를 **3D 데이터 조형물**로 표현한 작업입니다.\n\n## Highlights\n\n- 위성 데이터 기반 시각화\n- 연도별 온도 레이어 비교\n- 교육용 인터랙티브 전시\n\n[프로젝트 문서](https://example.com/ocean)\n",
+    "image_url": "https://images.unsplash.com/photo-1473448912268-2022ce9509d8?auto=format&fit=crop&w=1200&q=80",
+    "notion_url": "https://www.notion.so/help/guides"
+  },
+  {
+    "id": "p2",
+    "title": "City Lights Archive",
+    "subtitle": "night city image collection",
+    "markdown": "# City Lights Archive\n\n도시 야간 경관을 아카이빙한 프로젝트입니다.\n\n> 마크다운이 메인 콘텐츠로 출력됩니다.\n\n1. 지역별 분류\n2. 촬영 메타데이터 저장\n3. 시계열 탐색 지원\n",
+    "image_url": "https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=1200&q=80",
+    "notion_url": ""
+  },
+  {
+    "id": "p3",
+    "title": "Material Lab Notes",
+    "subtitle": "prototype research notes",
+    "markdown": "# Material Lab Notes\n\n신소재 프로토타입 실험 로그입니다.\n\n## 구성\n\n- 실험 단계\n- 결과 요약\n- 다음 실험 계획\n",
+    "image_url": "",
+    "notion_url": "https://www.notion.so/product/docs"
+  }
+]
