@@ -243,6 +243,7 @@ body {
   border: 1px solid #e2d8c4;
   border-radius: 12px;
   padding: 0.72rem 0.82rem;
+  min-height: 1.6em; /* prevent height shift when toggling contenteditable on empty blocks */
 }
 
 .notion-image-wrap {
