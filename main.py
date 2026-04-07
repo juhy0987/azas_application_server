@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, field_validator
 from starlette.requests import Request
 
 from app.models.blocks import BlockDocument
@@ -45,3 +46,38 @@ def get_document(document_id: str) -> BlockDocument:
         raise HTTPException(status_code=404, detail="Document not found")
 
     return document
+
+
+class DocumentTitleUpdate(BaseModel):
+    title: str
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        return stripped if stripped else "새 문서"
+
+
+@app.post("/api/documents", status_code=201)
+def create_document() -> dict[str, str]:
+    """Create a new empty document and return its info."""
+
+    return repository.create_document()
+
+
+@app.patch("/api/documents/{document_id}")
+def update_document_title(document_id: str, body: DocumentTitleUpdate) -> dict[str, str]:
+    """Update the title of an existing document."""
+
+    if not repository.update_document_title(document_id, body.title):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {"id": document_id, "title": body.title}
+
+
+@app.delete("/api/documents/{document_id}", status_code=204)
+def delete_document(document_id: str) -> None:
+    """Delete a document and all its blocks."""
+
+    if not repository.delete_document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
