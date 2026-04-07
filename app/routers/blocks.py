@@ -23,7 +23,7 @@ def patch_block(
   repo: SQLiteBlockRepository = Depends(get_repository),
 ) -> dict[str, str]:
   """Update editable content fields of a block."""
-  patch_data = body.model_dump(exclude_unset=True)
+  patch_data = body.model_dump(exclude_unset=True, exclude_none=True)
   if not patch_data:
     raise HTTPException(status_code=422, detail="No fields to update")
   if not repo.update_block(block_id, patch_data):

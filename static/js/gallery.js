@@ -67,8 +67,10 @@ function enableContentEditable(el, blockId, field, notionBlock) {
     const range = document.createRange();
     range.selectNodeContents(el);
     range.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(range);
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
   });
 
   el.addEventListener('keydown', (e) => {
