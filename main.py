@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from starlette.requests import Request
 
 from app.models.blocks import BlockDocument
@@ -50,6 +50,12 @@ def get_document(document_id: str) -> BlockDocument:
 
 class DocumentTitleUpdate(BaseModel):
     title: str
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        return stripped if stripped else "새 문서"
 
 
 @app.post("/api/documents", status_code=201)

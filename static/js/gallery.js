@@ -161,38 +161,41 @@ function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
   input.focus();
   input.select();
 
-  let committed = false;
+  let exited = false;
 
-  function commit(value) {
-    if (committed) return;
-    committed = true;
-
-    const newTitle = value.trim() || '새 문서';
-    apiUpdateTitle(docId, newTitle).catch(console.error);
+  function restoreButton(title) {
+    if (exited) return;
+    exited = true;
 
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'document-item is-active';
-    btn.textContent = newTitle;
+    btn.textContent = title;
     btn.addEventListener('click', () => {
       closeAllMenus(list);
       setActiveItem(list, listItem);
       onSelect(docId);
     });
     input.replaceWith(btn);
-
     if (menuBtn) menuBtn.hidden = false;
   }
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      commit(input.value);
+      const newTitle = input.value.trim() || '새 문서';
+      apiUpdateTitle(docId, newTitle).catch(console.error);
+      restoreButton(newTitle);
     } else if (e.key === 'Escape') {
-      commit(initialTitle);
+      restoreButton(initialTitle); // cancel: no API call, restore original title
     }
   });
-  input.addEventListener('blur', () => commit(input.value));
+
+  input.addEventListener('blur', () => {
+    const newTitle = input.value.trim() || '새 문서';
+    if (!exited) apiUpdateTitle(docId, newTitle).catch(console.error);
+    restoreButton(newTitle);
+  });
 }
 
 /**
@@ -277,7 +280,10 @@ async function initGallery() {
       const payload = await fetchDocument(documentId);
       renderDocument(payload);
     } catch (err) {
-      root.innerHTML = `<p class="error-state">문서를 불러오지 못했습니다: ${err.message}</p>`;
+      const p = document.createElement('p');
+      p.className = 'error-state';
+      p.textContent = `문서를 불러오지 못했습니다: ${err.message}`;
+      root.replaceChildren(p);
     }
   }
 
@@ -285,28 +291,33 @@ async function initGallery() {
     activeDocId = null;
     document.getElementById('page-title').textContent = '';
     document.getElementById('page-subtitle').textContent = '';
-    root.innerHTML = '<p class="empty-state">문서가 없습니다.</p>';
+    const p = document.createElement('p');
+    p.className = 'empty-state';
+    p.textContent = '문서가 없습니다.';
+    root.replaceChildren(p);
   }
 
   const handlers = {
     onSelect(docId) {
       loadDocument(docId);
     },
-    onDelete(docId, item) {
+    async onDelete(docId, item) {
       const wasActive = docId === activeDocId;
-      item.remove();
+      try {
+        await apiDeleteDocument(docId);
+        item.remove();
 
-      apiDeleteDocument(docId).catch(console.error);
-
-      if (wasActive) {
-        const firstItem = list.querySelector('li');
-        if (firstItem) {
-          const firstId = firstItem.dataset.id;
-          setActiveItem(list, firstItem);
-          loadDocument(firstId);
-        } else {
-          showEmptyState();
+        if (wasActive) {
+          const firstItem = list.querySelector('li');
+          if (firstItem) {
+            setActiveItem(list, firstItem);
+            loadDocument(firstItem.dataset.id);
+          } else {
+            showEmptyState();
+          }
         }
+      } catch (err) {
+        console.error('문서 삭제 실패:', err);
       }
     },
   };
@@ -327,7 +338,10 @@ async function initGallery() {
       await loadDocument(documents[0].id);
     }
   } catch (err) {
-    root.innerHTML = `<p class="error-state">문서를 불러오지 못했습니다: ${err.message}</p>`;
+    const p = document.createElement('p');
+    p.className = 'error-state';
+    p.textContent = `문서를 불러오지 못했습니다: ${err.message}`;
+    root.replaceChildren(p);
   }
 
   // + 새 문서 button
