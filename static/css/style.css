@@ -331,6 +331,62 @@ body {
   color: #6f3f37;
 }
 
+/* ── Inline editing ──────────────────────────────────────────────────────── */
+
+.notion-block.is-editing {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Hover hint: text and container title indicate they're editable */
+.notion-text:not([contenteditable="true"]):hover,
+.container-title:not([contenteditable="true"]):hover {
+  cursor: text;
+  outline: 1px solid var(--line);
+  outline-offset: 2px;
+}
+
+.notion-image:hover {
+  cursor: pointer;
+  opacity: 0.88;
+  transition: opacity 0.15s;
+}
+
+[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+}
+
+/* Caption: always present; placeholder shown when empty */
+.notion-caption.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--ink-soft);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.notion-caption:not(.is-empty) {
+  min-height: 1.4em;
+}
+
+.notion-image-wrap {
+  position: relative;
+}
+
+/* URL input shown in place of the image while editing */
+.image-url-input {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  background: var(--paper-deep);
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--ink);
+  outline: none;
+  min-height: 60px;
+}
+
 @keyframes fade-slide-up {
   from {
     opacity: 0;

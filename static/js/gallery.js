@@ -32,6 +32,71 @@ async function apiDeleteDocument(documentId) {
   if (!res.ok) throw new Error('Failed to delete document');
 }
 
+async function apiPatchBlock(blockId, fields) {
+  const res = await fetch(`/api/blocks/${blockId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error('Failed to update block');
+}
+
+// ── Inline editing helpers ────────────────────────────────────────────────────
+
+/**
+ * Make an element contenteditable on click.
+ * Saves via PATCH on blur/Enter; restores on Escape.
+ * @param {HTMLElement} el        - The element to make editable
+ * @param {string}      blockId   - Block ID for the API call
+ * @param {string}      field     - JSON field name to patch (e.g. "text", "title")
+ * @param {HTMLElement} notionBlock - The .notion-block ancestor for is-editing class
+ */
+function enableContentEditable(el, blockId, field, notionBlock) {
+  let originalText = '';
+  let escaped = false;
+
+  el.addEventListener('click', () => {
+    if (el.contentEditable === 'true') return;
+    originalText = el.textContent;
+    escaped = false;
+    el.contentEditable = 'true';
+    notionBlock.classList.add('is-editing');
+    el.focus();
+
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
+
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      el.blur();
+    } else if (e.key === 'Escape') {
+      escaped = true;
+      el.textContent = originalText;
+      el.contentEditable = 'false';
+      notionBlock.classList.remove('is-editing');
+    }
+  });
+
+  el.addEventListener('blur', () => {
+    if (el.contentEditable !== 'true') return;
+    el.contentEditable = 'false';
+    notionBlock.classList.remove('is-editing');
+    if (escaped) { escaped = false; return; }
+    const newText = el.textContent.trim();
+    if (newText !== originalText) {
+      apiPatchBlock(blockId, { [field]: newText }).catch(console.error);
+    }
+  });
+}
+
 // ── Navigation callback (set during initGallery) ─────────────────────────────
 // Allows page blocks rendered deep inside the block tree to trigger navigation.
 let navigateTo = null;
@@ -42,6 +107,7 @@ function createTextBlock(block) {
   const template = document.getElementById('text-block-template');
   const node = template.content.firstElementChild.cloneNode(true);
   node.textContent = block.text;
+  enableContentEditable(node, block.id, 'text', node);
   return node;
 }
 
@@ -51,13 +117,86 @@ function createImageBlock(block) {
   const image = node.querySelector('.notion-image');
   const caption = node.querySelector('.notion-caption');
 
-  image.src = block.url;
+  let currentUrl = block.url;
+  image.src = currentUrl;
   image.alt = block.caption || '';
   caption.textContent = block.caption || '';
 
   if (!block.caption) {
-    caption.remove();
+    caption.classList.add('is-empty');
   }
+
+  // 이미지 클릭 시 URL 인라인 편집
+  image.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'image-url-input';
+    input.value = currentUrl;
+    input.placeholder = 'https://...';
+    node.classList.add('is-editing');
+    image.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let saved = false;
+
+    function saveUrl() {
+      if (saved) return;
+      saved = true;
+      const newUrl = input.value.trim();
+      if (newUrl && newUrl !== currentUrl) {
+        currentUrl = newUrl;
+        image.src = newUrl;
+        apiPatchBlock(block.id, { url: newUrl }).catch(console.error);
+      }
+      input.replaceWith(image);
+      node.classList.remove('is-editing');
+    }
+
+    input.addEventListener('blur', saveUrl);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') {
+        saved = true;
+        input.replaceWith(image);
+        node.classList.remove('is-editing');
+      }
+    });
+  });
+
+  // 캡션 contenteditable 편집
+  let originalCaption = block.caption || '';
+  let captionEscaped = false;
+  caption.contentEditable = 'true';
+
+  caption.addEventListener('focus', () => {
+    captionEscaped = false;
+    node.classList.add('is-editing');
+    caption.classList.remove('is-empty');
+  });
+
+  caption.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); caption.blur(); }
+    if (e.key === 'Escape') {
+      captionEscaped = true;
+      caption.textContent = originalCaption;
+      if (!originalCaption) caption.classList.add('is-empty');
+      caption.blur();
+    }
+  });
+
+  caption.addEventListener('blur', () => {
+    node.classList.remove('is-editing');
+    if (captionEscaped) { captionEscaped = false; return; }
+    const newCaption = caption.textContent.trim();
+    caption.textContent = newCaption;
+    if (!newCaption) caption.classList.add('is-empty');
+    if (newCaption !== originalCaption) {
+      originalCaption = newCaption;
+      image.alt = newCaption;
+      apiPatchBlock(block.id, { caption: newCaption }).catch(console.error);
+    }
+  });
 
   return node;
 }
@@ -70,6 +209,7 @@ function createContainerBlock(block) {
 
   if (block.title) {
     titleNode.textContent = block.title;
+    enableContentEditable(titleNode, block.id, 'title', node);
   } else {
     titleNode.remove();
   }

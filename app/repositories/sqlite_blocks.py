@@ -166,6 +166,23 @@ class SQLiteBlockRepository:
       conn.commit()
     return cursor.rowcount > 0
 
+  def update_block(self, block_id: str, patch: dict[str, Any]) -> bool:
+    """Merge patch fields into a block's content_json. Returns False if block not found."""
+    with sqlite3.connect(self._db_path) as conn:
+      row = conn.execute(
+        "SELECT content_json FROM blocks WHERE id = ?", (block_id,)
+      ).fetchone()
+      if row is None:
+        return False
+      content = json.loads(row[0])
+      content.update(patch)
+      conn.execute(
+        "UPDATE blocks SET content_json = ? WHERE id = ?",
+        (json.dumps(content, ensure_ascii=False), block_id),
+      )
+      conn.commit()
+    return True
+
   def delete_document(self, document_id: str) -> bool:
     with sqlite3.connect(self._db_path) as conn:
       cursor = conn.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
