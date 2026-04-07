@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from app.routers import documents
+from app.routers import blocks, documents
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -17,6 +17,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app.include_router(documents.router)
+app.include_router(blocks.router)
 
 
 @app.get("/", response_class=HTMLResponse)
