@@ -7,31 +7,31 @@
 - 기본 브랜치: `main`
 - 작업 브랜치 생성 후 PR로 병합
 - 브랜치 이름 규칙:
-  - 기능: `feat/<short-name>`
-  - 버그 수정: `fix/<short-name>`
-  - 문서: `docs/<short-name>`
-  - 리팩터링: `refactor/<short-name>`
+  - 기능: `feat/#<issue-number>/<short-name>`
+  - 버그 수정: `fix/#<issue-number>/<short-name>`
+  - 문서: `docs/#<issue-number>/<short-name>`
+  - 리팩터링: `refactor/#<issue-number>/<short-name>`
 
 예시:
 
-- `feat/3d-gallery-filter`
-- `fix/notion-embed-url`
+- `feat/#3/3d-gallery-filter`
+- `fix/#7/notion-embed-url`
 
 ## 2. 커밋 메시지 컨벤션
 
 Conventional Commits 기반:
 
-- `feat: 새 기능`
-- `fix: 버그 수정`
-- `docs: 문서 수정`
-- `refactor: 리팩터링`
-- `chore: 빌드/설정 변경`
-- `test: 테스트 추가/수정`
+- `[FEAT]: 새 기능`
+- `[FIX]: 버그 수정`
+- `[DOCS]: 문서 수정`
+- `[REFAC]: 리팩터링`
+- `[CHORE]: 빌드/설정 변경`
+- `[TEST]: 테스트 추가/수정`
 
 예시:
 
-- `feat: add markdown-first project card renderer`
-- `fix: handle empty notion_url in gallery`
+- `[FEAT]: add markdown-first project card renderer`
+- `[FIX]: handle empty notion_url in gallery`
 
 ## 3. Pull Request 규칙
 
@@ -44,9 +44,16 @@ Conventional Commits 기반:
   - 리뷰 포인트
 - PR 크기는 가능한 작게 유지 (권장: 300줄 내외)
 
+PR 제목 형식
+- `[FEATURE] <Title>`
+- `[REFACTOR] <Title>`
+- `[FIX] <Title>`
+- `[DOCS] <Title>`
+- `[CHORE] <Title>`
+
+
 ## 4. 리뷰 규칙
 
-- 최소 1명 승인 후 병합
 - 코멘트에는 맥락/근거/대안 포함
 - 블로킹 이슈는 반드시 해결 후 병합
 
@@ -55,6 +62,12 @@ Conventional Commits 기반:
 - 버그/기능 요청은 템플릿 사용
 - 재현 단계와 기대 결과를 명확히 작성
 - 담당자, 라벨, 마일스톤 지정 권장
+
+이슈 제목 형식
+- `[BUG] <Title>`
+- `[FEATURE] <Title>`
+- `[REFACTOR] <Title>`
+- `[CHORE] <Title>`
 
 ## 6. 병합 규칙
 
