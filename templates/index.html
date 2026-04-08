@@ -1,23 +1,35 @@
 {% extends "base.html" %}
 
-{% block content %}
-<main class="page-shell">
-  <aside class="document-list-panel">
-    <div class="document-list-header">
-      <h2>Documents</h2>
-      <button id="new-document-btn" type="button" class="new-document-btn">+ 새 문서</button>
-    </div>
-    <ul id="document-list" class="document-list" aria-label="document list"></ul>
-  </aside>
+{% block sidebar %}
+<div id="sidebar-tab" class="sidebar-tab" role="button" tabindex="0" aria-label="사이드바 토글" aria-expanded="true" aria-controls="sidebar-panel">
+  <span class="sidebar-tab-chevron"></span>
+  <span class="sidebar-tab-label">문서</span>
+</div>
+<aside id="sidebar-panel" class="sidebar">
+  <div class="sidebar-brand">
+    <p class="eyebrow">Project Manager</p>
+  </div>
+  <div class="document-list-header">
+    <h2>Documents</h2>
+    <button id="new-document-btn" type="button" class="new-document-btn">+ 새 문서</button>
+  </div>
+  <ul id="document-list" class="document-list" aria-label="document list"></ul>
+</aside>
+{% endblock %}
 
-  <section class="block-page" aria-live="polite">
-    <header class="block-page-header">
-      <h2 id="page-title"></h2>
-      <p id="page-subtitle"></p>
-    </header>
-    <div id="block-root" class="block-root"></div>
-  </section>
-</main>
+{% block content %}
+<header class="topbar">
+  <h1>Block-based Project Manager</h1>
+  <p class="subcopy">텍스트, 이미지, 컨테이너 블록을 조합해 노션처럼 프로젝트 페이지를 구성합니다.</p>
+</header>
+
+<section class="block-page" aria-live="polite">
+  <header class="block-page-header">
+    <h2 id="page-title"></h2>
+    <p id="page-subtitle"></p>
+  </header>
+  <div id="block-root" class="block-root"></div>
+</section>
 {% endblock %}
 
 {% block templates %}
