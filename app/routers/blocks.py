@@ -43,7 +43,7 @@ def move_block(
 ) -> dict[str, str]:
   """Reorder a block among its siblings."""
   if not repo.move_block(block_id, body.before_block_id):
-    raise HTTPException(status_code=404, detail="Block not found")
+    raise HTTPException(status_code=422, detail="Block not found or invalid before_block_id")
   return {"id": block_id}
 
 

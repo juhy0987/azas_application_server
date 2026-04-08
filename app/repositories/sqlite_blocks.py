@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -268,9 +269,9 @@ class SQLiteBlockRepository:
   def _collect_subtree_ids(self, conn: sqlite3.Connection, root_id: str) -> list[str]:
     """BFS to collect root_id and all descendant block IDs."""
     result: list[str] = []
-    queue = [root_id]
+    queue: deque[str] = deque([root_id])
     while queue:
-      current = queue.pop(0)
+      current = queue.popleft()
       result.append(current)
       children = conn.execute(
         "SELECT id FROM blocks WHERE parent_block_id = ?", (current,)
@@ -303,11 +304,13 @@ class SQLiteBlockRepository:
       ).fetchall()
       sibling_ids = [r[0] for r in siblings]
 
-      if before_block_id is not None and before_block_id in sibling_ids:
+      if before_block_id is None:
+        sibling_ids.append(block_id)
+      elif before_block_id in sibling_ids:
         idx = sibling_ids.index(before_block_id)
         sibling_ids.insert(idx, block_id)
       else:
-        sibling_ids.append(block_id)
+        return False
 
       for i, sid in enumerate(sibling_ids, start=1):
         conn.execute("UPDATE blocks SET position = ? WHERE id = ?", (i, sid))

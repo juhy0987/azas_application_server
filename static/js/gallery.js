@@ -131,6 +131,7 @@ let reloadDocument = null; // () => void — reload the active document
 // ── Drag state ────────────────────────────────────────────────────────────────
 let currentDragBlockId = null;
 let currentDragParentBlockId = null;
+let currentDropTarget = null;
 
 // ── Block palette (slash command / + button) ─────────────────────────────────
 
@@ -236,14 +237,21 @@ function showBlockDeleteConfirm(wrapperEl, blockId) {
   dialog.appendChild(btns);
   wrapperEl.appendChild(dialog);
 
+  let removeOutsideListener = () => {};
+
+  function close() {
+    removeOutsideListener();
+    dialog.remove();
+  }
+
   cancelBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    dialog.remove();
+    close();
   });
 
   okBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    dialog.remove();
+    close();
     try {
       await apiDeleteBlock(blockId);
       if (reloadDocument) reloadDocument();
@@ -254,12 +262,10 @@ function showBlockDeleteConfirm(wrapperEl, blockId) {
 
   setTimeout(() => {
     function onOutside(e) {
-      if (!dialog.contains(e.target)) {
-        dialog.remove();
-        document.removeEventListener('click', onOutside, true);
-      }
+      if (!dialog.contains(e.target)) close();
     }
     document.addEventListener('click', onOutside, true);
+    removeOutsideListener = () => document.removeEventListener('click', onOutside, true);
   }, 0);
 }
 
@@ -331,9 +337,16 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
   });
 
   // ── Drag and Drop ─────────────────────────────────────────────────────────
-  // Only become draggable when the drag handle is pressed
+  // Only become draggable when the drag handle is pressed.
+  // Reset on mouseup (document-level) to cover the case where the user
+  // presses the handle but releases without starting a drag.
   dragHandle.addEventListener('mousedown', () => {
     wrapper.draggable = true;
+    function onMouseUp() {
+      if (!currentDragBlockId) wrapper.draggable = false;
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+    document.addEventListener('mouseup', onMouseUp);
   });
 
   wrapper.addEventListener('dragstart', (e) => {
@@ -352,9 +365,10 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
     wrapper.classList.remove('is-dragging');
     currentDragBlockId = null;
     currentDragParentBlockId = null;
-    document.querySelectorAll('.block-wrapper').forEach((w) => {
-      w.classList.remove('drop-above', 'drop-below');
-    });
+    if (currentDropTarget) {
+      currentDropTarget.classList.remove('drop-above', 'drop-below');
+      currentDropTarget = null;
+    }
   });
 
   wrapper.addEventListener('dragover', (e) => {
@@ -367,13 +381,16 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
 
-    document.querySelectorAll('.block-wrapper').forEach((w) => {
-      w.classList.remove('drop-above', 'drop-below');
-    });
+    if (currentDropTarget && currentDropTarget !== wrapper) {
+      currentDropTarget.classList.remove('drop-above', 'drop-below');
+    }
+    currentDropTarget = wrapper;
 
     const rect = wrapper.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
-    wrapper.classList.add(e.clientY < midY ? 'drop-above' : 'drop-below');
+    const isAbove = e.clientY < midY;
+    wrapper.classList.toggle('drop-above', isAbove);
+    wrapper.classList.toggle('drop-below', !isAbove);
   });
 
   wrapper.addEventListener('dragleave', (e) => {
@@ -386,6 +403,7 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
     e.preventDefault();
     e.stopPropagation();
     wrapper.classList.remove('drop-above', 'drop-below');
+    currentDropTarget = null;
 
     if (!currentDragBlockId || currentDragBlockId === block.id) return;
     if (currentDragParentBlockId !== (parentBlockId ?? '')) return;
