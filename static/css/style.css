@@ -71,11 +71,6 @@ body.sidebar-collapsed .main-area {
   margin-left: 0;
 }
 
-.topbar {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2.6rem 1.2rem 1.2rem;
-}
 
 /* ── Sidebar bookmark tab ─────────────────────────────────────────────────── */
 
@@ -151,17 +146,6 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   font-weight: 700;
 }
 
-.topbar h1 {
-  margin: 0.25rem 0 0;
-  font-family: "Fraunces", serif;
-  font-size: clamp(1.8rem, 4vw, 3.4rem);
-}
-
-.subcopy {
-  margin: 0.55rem 0 0;
-  max-width: 720px;
-  color: var(--ink-soft);
-}
 
 .document-list-header {
   display: flex;
