@@ -230,12 +230,12 @@ class SQLiteBlockRepository:
       None   — block_id not found
       False  — before_block_id is not a valid sibling
     """
-    if before_block_id == block_id:
-      return True
-
     block_row = self._session.get(BlockRow, block_id)
     if block_row is None:
       return None
+
+    if before_block_id == block_id:
+      return True
 
     document_id = block_row.document_id
     parent_block_id = block_row.parent_block_id

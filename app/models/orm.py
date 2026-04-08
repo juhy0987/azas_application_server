@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -35,4 +35,8 @@ class BlockRow(Base):
   document: Mapped[DocumentRow] = relationship(
     back_populates="blocks",
     foreign_keys=[document_id],
+  )
+
+  __table_args__ = (
+    Index("idx_blocks_document_parent_pos", "document_id", "parent_block_id", "position"),
   )
