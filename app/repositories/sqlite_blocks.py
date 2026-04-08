@@ -1,186 +1,125 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
-from pathlib import Path
 from typing import Any
 
 from pydantic import TypeAdapter
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.orm import Session
 
 from app.models.blocks import Block, BlockDocument, ContainerBlock, PageBlock
+from app.models.orm import BlockRow, DocumentRow
 
 
 class SQLiteBlockRepository:
-  """SQLite-backed repository for notion-style block documents."""
+  """SQLAlchemy-backed repository for notion-style block documents."""
 
   _block_adapter = TypeAdapter(Block)
 
-  def __init__(self, db_path: Path) -> None:
-    self._db_path = db_path
-    self._db_path.parent.mkdir(parents=True, exist_ok=True)
+  def __init__(self, session: Session) -> None:
+    self._session = session
 
-  def initialize(self) -> None:
-    with sqlite3.connect(self._db_path) as conn:
-      cursor = conn.cursor()
-
-      cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS documents (
-          id TEXT PRIMARY KEY,
-          title TEXT NOT NULL,
-          subtitle TEXT NOT NULL DEFAULT ''
-        )
-        """
-      )
-
-      cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS blocks (
-          id TEXT PRIMARY KEY,
-          document_id TEXT NOT NULL,
-          parent_block_id TEXT,
-          type TEXT NOT NULL,
-          position INTEGER NOT NULL,
-          content_json TEXT NOT NULL,
-          FOREIGN KEY (document_id) REFERENCES documents(id)
-        )
-        """
-      )
-
-      cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_blocks_document_parent_pos ON blocks(document_id, parent_block_id, position)"
-      )
-
-      conn.commit()
-
-    self._seed_if_empty()
+  # ── Documents ──────────────────────────────────────────────────────────────
 
   def list_documents(self) -> list[dict[str, str]]:
-    with sqlite3.connect(self._db_path) as conn:
-      conn.row_factory = sqlite3.Row
-      rows = conn.execute(
-        "SELECT id, title, subtitle FROM documents ORDER BY title ASC"
-      ).fetchall()
-
-    return [dict(row) for row in rows]
+    rows = self._session.execute(
+      select(DocumentRow).order_by(DocumentRow.title)
+    ).scalars().all()
+    return [{"id": r.id, "title": r.title, "subtitle": r.subtitle} for r in rows]
 
   def get_document(self, document_id: str) -> BlockDocument | None:
-    with sqlite3.connect(self._db_path) as conn:
-      conn.row_factory = sqlite3.Row
-      doc_row = conn.execute(
-        "SELECT id, title, subtitle FROM documents WHERE id = ?",
-        (document_id,),
-      ).fetchone()
+    doc_row = self._session.get(DocumentRow, document_id)
+    if doc_row is None:
+      return None
 
-      if doc_row is None:
-        return None
+    block_rows = self._session.execute(
+      select(BlockRow)
+      .where(BlockRow.document_id == document_id)
+      .order_by(BlockRow.parent_block_id.asc(), BlockRow.position.asc())
+    ).scalars().all()
 
-      block_rows = conn.execute(
-        """
-        SELECT id, parent_block_id, type, content_json
-        FROM blocks
-        WHERE document_id = ?
-        ORDER BY parent_block_id ASC, position ASC
-        """,
-        (document_id,),
-      ).fetchall()
+    parsed_blocks = [
+      {
+        "id": row.id,
+        "parent_block_id": row.parent_block_id,
+        "type": row.type,
+        **json.loads(row.content_json),
+      }
+      for row in block_rows
+    ]
 
-      # Parse all blocks up front to avoid double-decoding content_json
-      parsed_blocks = [
-        {
-          "id": row["id"],
-          "parent_block_id": row["parent_block_id"],
-          "type": row["type"],
-          **json.loads(row["content_json"]),
-        }
-        for row in block_rows
-      ]
-
-      # Fetch titles only for documents referenced by page blocks
-      page_doc_ids = list({
-        item["document_id"]
-        for item in parsed_blocks
-        if item["type"] == "page" and "document_id" in item
-      })
-      if page_doc_ids:
-        placeholders = ",".join("?" * len(page_doc_ids))
-        doc_title_rows = conn.execute(
-          f"SELECT id, title FROM documents WHERE id IN ({placeholders})",
-          page_doc_ids,
-        ).fetchall()
-      else:
-        doc_title_rows = []
-
-    doc_titles: dict[str, str] = {row["id"]: row["title"] for row in doc_title_rows}
+    page_doc_ids = list({
+      item["document_id"]
+      for item in parsed_blocks
+      if item["type"] == "page" and "document_id" in item
+    })
+    doc_titles: dict[str, str] = {}
+    if page_doc_ids:
+      title_rows = self._session.execute(
+        select(DocumentRow.id, DocumentRow.title).where(DocumentRow.id.in_(page_doc_ids))
+      ).all()
+      doc_titles = {row.id: row.title for row in title_rows}
 
     children_by_parent: dict[str | None, list[dict[str, Any]]] = {}
     for item in parsed_blocks:
-      parent_key = item["parent_block_id"]
-      children_by_parent.setdefault(parent_key, []).append(item)
+      children_by_parent.setdefault(item["parent_block_id"], []).append(item)
 
     def build_nodes(parent_id: str | None) -> list[Block]:
       nodes: list[Block] = []
       for item in children_by_parent.get(parent_id, []):
         if item["type"] == "container":
-          container_payload = {
-            **item,
-            "children": build_nodes(item["id"]),
-          }
-          nodes.append(ContainerBlock.model_validate(container_payload))
+          nodes.append(ContainerBlock.model_validate({**item, "children": build_nodes(item["id"])}))
         elif item["type"] == "page":
-          page_payload = {
+          nodes.append(PageBlock.model_validate({
             **item,
             "title": doc_titles.get(item.get("document_id", ""), "알 수 없는 문서"),
-          }
-          nodes.append(PageBlock.model_validate(page_payload))
+          }))
         else:
           nodes.append(self._block_adapter.validate_python(item))
       return nodes
 
-    blocks = build_nodes(None)
     return BlockDocument(
-      id=doc_row["id"],
-      title=doc_row["title"],
-      subtitle=doc_row["subtitle"],
-      blocks=blocks,
+      id=doc_row.id,
+      title=doc_row.title,
+      subtitle=doc_row.subtitle,
+      blocks=build_nodes(None),
     )
 
   def create_document(self) -> dict[str, str]:
     doc_id = str(uuid.uuid4())
     title = "새 문서"
-    with sqlite3.connect(self._db_path) as conn:
-      conn.execute(
-        "INSERT INTO documents(id, title, subtitle) VALUES (?, ?, ?)",
-        (doc_id, title, ""),
-      )
-      conn.commit()
+    self._session.add(DocumentRow(id=doc_id, title=title, subtitle=""))
+    self._session.commit()
     return {"id": doc_id, "title": title, "subtitle": ""}
 
   def update_document_title(self, document_id: str, title: str) -> bool:
-    with sqlite3.connect(self._db_path) as conn:
-      cursor = conn.execute(
-        "UPDATE documents SET title = ? WHERE id = ?",
-        (title, document_id),
-      )
-      conn.commit()
-    return cursor.rowcount > 0
+    doc_row = self._session.get(DocumentRow, document_id)
+    if doc_row is None:
+      return False
+    doc_row.title = title
+    self._session.commit()
+    return True
+
+  def delete_document(self, document_id: str) -> bool:
+    doc_row = self._session.get(DocumentRow, document_id)
+    if doc_row is None:
+      return False
+    self._session.delete(doc_row)
+    self._session.commit()
+    return True
+
+  # ── Blocks ─────────────────────────────────────────────────────────────────
 
   def update_block(self, block_id: str, patch: dict[str, Any]) -> bool:
     """Merge patch fields into a block's content_json. Returns False if block not found."""
-    with sqlite3.connect(self._db_path) as conn:
-      row = conn.execute(
-        "SELECT content_json FROM blocks WHERE id = ?", (block_id,)
-      ).fetchone()
-      if row is None:
-        return False
-      content = json.loads(row[0])
-      content.update(patch)
-      conn.execute(
-        "UPDATE blocks SET content_json = ? WHERE id = ?",
-        (json.dumps(content, ensure_ascii=False), block_id),
-      )
-      conn.commit()
+    block_row = self._session.get(BlockRow, block_id)
+    if block_row is None:
+      return False
+    content = json.loads(block_row.content_json)
+    content.update(patch)
+    block_row.content_json = json.dumps(content, ensure_ascii=False)
+    self._session.commit()
     return True
 
   def create_block(
@@ -203,81 +142,80 @@ class SQLiteBlockRepository:
       case _:
         return None
 
-    with sqlite3.connect(self._db_path) as conn:
-      if conn.execute("SELECT 1 FROM documents WHERE id = ?", (document_id,)).fetchone() is None:
+    if self._session.get(DocumentRow, document_id) is None:
+      return None
+
+    if parent_block_id is not None:
+      parent_exists = self._session.execute(
+        select(BlockRow.id).where(
+          BlockRow.id == parent_block_id,
+          BlockRow.document_id == document_id,
+        )
+      ).scalar_one_or_none()
+      if parent_exists is None:
         return None
 
-      if parent_block_id is not None:
-        parent_row = conn.execute(
-          "SELECT 1 FROM blocks WHERE id = ? AND document_id = ?",
-          (parent_block_id, document_id),
-        ).fetchone()
-        if parent_row is None:
-          return None
+    parent_filter = (
+      BlockRow.parent_block_id.is_(None)
+      if parent_block_id is None
+      else BlockRow.parent_block_id == parent_block_id
+    )
+    max_pos = self._session.execute(
+      select(func.coalesce(func.max(BlockRow.position), 0))
+      .where(BlockRow.document_id == document_id, parent_filter)
+    ).scalar_one()
 
-      row = conn.execute(
-        "SELECT COALESCE(MAX(position), 0) FROM blocks WHERE document_id = ? AND parent_block_id IS ?",
-        (document_id, parent_block_id),
-      ).fetchone()
-      next_position = row[0] + 1
-
-      block_id = str(uuid.uuid4())
-      conn.execute(
-        """
-        INSERT INTO blocks(id, document_id, parent_block_id, type, position, content_json)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-          block_id,
-          document_id,
-          parent_block_id,
-          block_type,
-          next_position,
-          json.dumps(default_content, ensure_ascii=False),
-        ),
-      )
-      conn.commit()
-
+    block_id = str(uuid.uuid4())
+    self._session.add(BlockRow(
+      id=block_id,
+      document_id=document_id,
+      parent_block_id=parent_block_id,
+      type=block_type,
+      position=max_pos + 1,
+      content_json=json.dumps(default_content, ensure_ascii=False),
+    ))
+    self._session.commit()
     return {"id": block_id, "type": block_type, **default_content}
 
   def delete_block(self, block_id: str) -> bool:
     """Delete a block and all its descendants. Compacts sibling positions after deletion."""
-    with sqlite3.connect(self._db_path) as conn:
-      row = conn.execute(
-        "SELECT document_id, parent_block_id, position FROM blocks WHERE id = ?",
-        (block_id,),
-      ).fetchone()
-      if row is None:
-        return False
-      document_id, parent_block_id, position = row
+    block_row = self._session.get(BlockRow, block_id)
+    if block_row is None:
+      return False
 
-      all_ids = self._collect_subtree_ids(conn, block_id)
-      placeholders = ",".join("?" * len(all_ids))
-      conn.execute(f"DELETE FROM blocks WHERE id IN ({placeholders})", all_ids)
+    document_id = block_row.document_id
+    parent_block_id = block_row.parent_block_id
+    position = block_row.position
 
-      conn.execute(
-        """
-        UPDATE blocks SET position = position - 1
-        WHERE document_id = ? AND parent_block_id IS ? AND position > ?
-        """,
-        (document_id, parent_block_id, position),
-      )
-      conn.commit()
+    all_ids = self._collect_subtree_ids(block_id)
+    self._session.execute(delete(BlockRow).where(BlockRow.id.in_(all_ids)))
+
+    parent_filter = (
+      BlockRow.parent_block_id.is_(None)
+      if parent_block_id is None
+      else BlockRow.parent_block_id == parent_block_id
+    )
+    self._session.execute(
+      update(BlockRow)
+      .where(BlockRow.document_id == document_id, parent_filter, BlockRow.position > position)
+      .values(position=BlockRow.position - 1)
+    )
+    self._session.commit()
     return True
 
-  def _collect_subtree_ids(self, conn: sqlite3.Connection, root_id: str) -> list[str]:
+  def _collect_subtree_ids(self, root_id: str) -> list[str]:
     """Collect root_id and all descendant block IDs via a single recursive CTE."""
-    rows = conn.execute(
-      """
-      WITH RECURSIVE subtree(id) AS (
-        SELECT id FROM blocks WHERE id = ?
-        UNION ALL
-        SELECT b.id FROM blocks b
-        INNER JOIN subtree s ON b.parent_block_id = s.id
-      )
-      SELECT id FROM subtree
-      """,
-      (root_id,),
+    rows = self._session.execute(
+      text("""
+        WITH RECURSIVE subtree(id) AS (
+          SELECT id FROM blocks WHERE id = :root_id
+          UNION ALL
+          SELECT b.id FROM blocks b
+          INNER JOIN subtree s ON b.parent_block_id = s.id
+        )
+        SELECT id FROM subtree
+      """),
+      {"root_id": root_id},
     ).fetchall()
     return [row[0] for row in rows]
 
@@ -292,150 +230,85 @@ class SQLiteBlockRepository:
       None   — block_id not found
       False  — before_block_id is not a valid sibling
     """
+    block_row = self._session.get(BlockRow, block_id)
+    if block_row is None:
+      return None
+
     if before_block_id == block_id:
-      return True  # no-op: moving a block before itself
+      return True
 
-    with sqlite3.connect(self._db_path) as conn:
-      row = conn.execute(
-        "SELECT document_id, parent_block_id FROM blocks WHERE id = ?",
-        (block_id,),
-      ).fetchone()
-      if row is None:
-        return None
-      document_id, parent_block_id = row
+    document_id = block_row.document_id
+    parent_block_id = block_row.parent_block_id
 
-      siblings = conn.execute(
-        """
-        SELECT id FROM blocks
-        WHERE document_id = ? AND parent_block_id IS ? AND id != ?
-        ORDER BY position ASC
-        """,
-        (document_id, parent_block_id, block_id),
-      ).fetchall()
-      sibling_ids = [r[0] for r in siblings]
+    parent_filter = (
+      BlockRow.parent_block_id.is_(None)
+      if parent_block_id is None
+      else BlockRow.parent_block_id == parent_block_id
+    )
+    sibling_ids: list[str] = list(self._session.execute(
+      select(BlockRow.id)
+      .where(BlockRow.document_id == document_id, parent_filter, BlockRow.id != block_id)
+      .order_by(BlockRow.position.asc())
+    ).scalars().all())
 
-      if before_block_id is None:
-        sibling_ids.append(block_id)
-      elif before_block_id in sibling_ids:
-        idx = sibling_ids.index(before_block_id)
-        sibling_ids.insert(idx, block_id)
-      else:
-        return False
+    if before_block_id is None:
+      sibling_ids.append(block_id)
+    elif before_block_id in sibling_ids:
+      sibling_ids.insert(sibling_ids.index(before_block_id), block_id)
+    else:
+      return False
 
-      for i, sid in enumerate(sibling_ids, start=1):
-        conn.execute("UPDATE blocks SET position = ? WHERE id = ?", (i, sid))
-      conn.commit()
+    for i, sid in enumerate(sibling_ids, start=1):
+      self._session.execute(update(BlockRow).where(BlockRow.id == sid).values(position=i))
+    self._session.commit()
     return True
 
-  def delete_document(self, document_id: str) -> bool:
-    with sqlite3.connect(self._db_path) as conn:
-      cursor = conn.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
-      if cursor.fetchone() is None:
-        return False
-      conn.execute("DELETE FROM blocks WHERE document_id = ?", (document_id,))
-      conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
-      conn.commit()
-    return True
+  # ── Seed ───────────────────────────────────────────────────────────────────
 
   def _seed_if_empty(self) -> None:
-    with sqlite3.connect(self._db_path) as conn:
-      existing_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-      if existing_count > 0:
-        return
+    count = self._session.execute(select(func.count()).select_from(DocumentRow)).scalar_one()
+    if count > 0:
+      return
 
-      intro_id = "project-manager-intro"
-      stack_id = "tech-stack"
+    intro_id = "project-manager-intro"
+    stack_id = "tech-stack"
 
-      conn.executemany(
-        "INSERT INTO documents(id, title, subtitle) VALUES (?, ?, ?)",
-        [
-          (intro_id, "Project Manager 소개", "블록 기반 프로젝트 관리 도구"),
-          (stack_id, "기술 스택", "이 프로젝트에서 사용하는 기술 목록"),
-        ],
-      )
+    self._session.add_all([
+      DocumentRow(id=intro_id, title="Project Manager 소개", subtitle="블록 기반 프로젝트 관리 도구"),
+      DocumentRow(id=stack_id, title="기술 스택", subtitle="이 프로젝트에서 사용하는 기술 목록"),
+    ])
 
-      # (block_id, document_id, parent_block_id, type, position, content)
-      blocks = [
-        # ── intro document ──────────────────────────────────────────────────
-        ("b-overview", intro_id, None, "container", 1, {"title": "개요", "layout": "vertical"}),
-        (
-          "b-overview-text",
-          intro_id,
-          "b-overview",
-          "text",
-          1,
-          {"text": "Project Manager는 노션 스타일의 블록 인터페이스로 프로젝트와 문서를 관리하는 도구입니다."},
-        ),
-        (
-          "b-overview-image",
-          intro_id,
-          "b-overview",
-          "image",
-          2,
-          {
-            "url": "https://images.unsplash.com/photo-1611532736597-de2d4265fba3?auto=format&fit=crop&w=1200&q=80",
-            "caption": "블록으로 구성하는 프로젝트 문서",
-          },
-        ),
-        ("b-block-types", intro_id, None, "container", 2, {"title": "블록 타입", "layout": "grid"}),
-        (
-          "b-block-text",
-          intro_id,
-          "b-block-types",
-          "text",
-          1,
-          {"text": "텍스트 블록: 프로젝트 설명, 요구사항, 메모 등 텍스트 콘텐츠를 기록합니다."},
-        ),
-        (
-          "b-block-image",
-          intro_id,
-          "b-block-types",
-          "text",
-          2,
-          {"text": "이미지 블록: 스크린샷, 다이어그램, 참고 이미지를 문서에 삽입합니다."},
-        ),
-        (
-          "b-block-container",
-          intro_id,
-          "b-block-types",
-          "text",
-          3,
-          {"text": "컨테이너 블록: 블록 묶음에 레이아웃(vertical / grid)을 적용해 섹션을 구조화합니다."},
-        ),
-        # PageBlock: intro → tech-stack (문서 간 연결 예시)
-        (
-          "b-page-stack",
-          intro_id,
-          None,
-          "page",
-          3,
-          {"document_id": stack_id},
-        ),
-        # ── tech-stack document ─────────────────────────────────────────────
-        ("b-stack-overview", stack_id, None, "container", 1, {"title": "백엔드", "layout": "grid"}),
-        ("b-stack-fastapi", stack_id, "b-stack-overview", "text", 1, {"text": "FastAPI — Python 기반 비동기 웹 프레임워크"}),
-        ("b-stack-sqlite", stack_id, "b-stack-overview", "text", 2, {"text": "SQLite — 경량 내장형 관계형 데이터베이스"}),
-        ("b-stack-pydantic", stack_id, "b-stack-overview", "text", 3, {"text": "Pydantic v2 — 타입 기반 데이터 검증"}),
-        # PageBlock: tech-stack → intro (역방향 연결 예시)
-        (
-          "b-page-intro",
-          stack_id,
-          None,
-          "page",
-          2,
-          {"document_id": intro_id},
-        ),
-      ]
-
-      conn.executemany(
-        """
-        INSERT INTO blocks(id, document_id, parent_block_id, type, position, content_json)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        [
-          (block_id, doc_id, parent_id, block_type, position, json.dumps(content, ensure_ascii=False))
-          for block_id, doc_id, parent_id, block_type, position, content in blocks
-        ],
-      )
-
-      conn.commit()
+    self._session.add_all([
+      # ── intro document ──────────────────────────────────────────────────────
+      BlockRow(id="b-overview", document_id=intro_id, parent_block_id=None, type="container", position=1,
+               content_json=json.dumps({"title": "개요", "layout": "vertical"})),
+      BlockRow(id="b-overview-text", document_id=intro_id, parent_block_id="b-overview", type="text", position=1,
+               content_json=json.dumps({"text": "Project Manager는 노션 스타일의 블록 인터페이스로 프로젝트와 문서를 관리하는 도구입니다."})),
+      BlockRow(id="b-overview-image", document_id=intro_id, parent_block_id="b-overview", type="image", position=2,
+               content_json=json.dumps({
+                 "url": "https://images.unsplash.com/photo-1611532736597-de2d4265fba3?auto=format&fit=crop&w=1200&q=80",
+                 "caption": "블록으로 구성하는 프로젝트 문서",
+               })),
+      BlockRow(id="b-block-types", document_id=intro_id, parent_block_id=None, type="container", position=2,
+               content_json=json.dumps({"title": "블록 타입", "layout": "grid"})),
+      BlockRow(id="b-block-text", document_id=intro_id, parent_block_id="b-block-types", type="text", position=1,
+               content_json=json.dumps({"text": "텍스트 블록: 프로젝트 설명, 요구사항, 메모 등 텍스트 콘텐츠를 기록합니다."})),
+      BlockRow(id="b-block-image", document_id=intro_id, parent_block_id="b-block-types", type="text", position=2,
+               content_json=json.dumps({"text": "이미지 블록: 스크린샷, 다이어그램, 참고 이미지를 문서에 삽입합니다."})),
+      BlockRow(id="b-block-container", document_id=intro_id, parent_block_id="b-block-types", type="text", position=3,
+               content_json=json.dumps({"text": "컨테이너 블록: 블록 묶음에 레이아웃(vertical / grid)을 적용해 섹션을 구조화합니다."})),
+      BlockRow(id="b-page-stack", document_id=intro_id, parent_block_id=None, type="page", position=3,
+               content_json=json.dumps({"document_id": stack_id})),
+      # ── tech-stack document ─────────────────────────────────────────────────
+      BlockRow(id="b-stack-overview", document_id=stack_id, parent_block_id=None, type="container", position=1,
+               content_json=json.dumps({"title": "백엔드", "layout": "grid"})),
+      BlockRow(id="b-stack-fastapi", document_id=stack_id, parent_block_id="b-stack-overview", type="text", position=1,
+               content_json=json.dumps({"text": "FastAPI — Python 기반 비동기 웹 프레임워크"})),
+      BlockRow(id="b-stack-sqlite", document_id=stack_id, parent_block_id="b-stack-overview", type="text", position=2,
+               content_json=json.dumps({"text": "SQLite — 경량 내장형 관계형 데이터베이스"})),
+      BlockRow(id="b-stack-pydantic", document_id=stack_id, parent_block_id="b-stack-overview", type="text", position=3,
+               content_json=json.dumps({"text": "Pydantic v2 — 타입 기반 데이터 검증"})),
+      BlockRow(id="b-page-intro", document_id=stack_id, parent_block_id=None, type="page", position=2,
+               content_json=json.dumps({"document_id": intro_id})),
+    ])
+    self._session.commit()
