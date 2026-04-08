@@ -14,6 +14,7 @@ class BlockPatch(BaseModel):
   url: str | None = None
   caption: str | None = None
   title: str | None = None
+  level: int | None = None
 
 
 class BlockPositionPatch(BaseModel):

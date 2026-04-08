@@ -36,6 +36,20 @@ class ContainerBlock(BlockBase):
   children: list["Block"] = Field(default_factory=list)
 
 
+class HeadingBlock(BlockBase):
+  """Heading block with level (H1–H3) and text content."""
+
+  type: Literal["heading"]
+  level: Literal[1, 2, 3] = 1
+  text: str
+
+
+class DividerBlock(BlockBase):
+  """Horizontal divider block."""
+
+  type: Literal["divider"]
+
+
 class PageBlock(BlockBase):
   """Block that links to another BlockDocument, enabling recursive page nesting."""
 
@@ -44,7 +58,10 @@ class PageBlock(BlockBase):
   title: str = ""  # populated at query time from the referenced document
 
 
-Block = Annotated[TextBlock | ImageBlock | ContainerBlock | PageBlock, Field(discriminator="type")]
+Block = Annotated[
+  TextBlock | ImageBlock | ContainerBlock | HeadingBlock | DividerBlock | PageBlock,
+  Field(discriminator="type"),
+]
 
 
 class BlockDocument(BaseModel):

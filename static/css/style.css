@@ -334,6 +334,54 @@ body {
   color: #6f3f37;
 }
 
+/* ── Heading block ───────────────────────────────────────────────────────── */
+
+.notion-heading {
+  margin: 0;
+  padding: 0.32rem;
+  cursor: text;
+}
+
+.heading-text {
+  display: block;
+  min-height: 1.2em;
+  outline: none;
+}
+
+.notion-heading[data-level="1"] .heading-text {
+  font-family: "Fraunces", serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.notion-heading[data-level="2"] .heading-text {
+  font-family: "Fraunces", serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.notion-heading[data-level="3"] .heading-text {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.notion-heading:not([contenteditable="true"]):hover {
+  cursor: text;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
+/* ── Divider block ───────────────────────────────────────────────────────── */
+
+.notion-divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 0.25rem 0;
+}
+
 /* ── Inline editing ──────────────────────────────────────────────────────── */
 
 .notion-block.is-editing {

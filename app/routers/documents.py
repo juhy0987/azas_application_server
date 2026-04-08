@@ -59,7 +59,7 @@ def update_document_title(
 
 
 class BlockCreate(BaseModel):
-  type: Literal["text", "image", "container"]
+  type: Literal["text", "image", "container", "heading", "divider"]
   parent_block_id: str | None = None
 
 

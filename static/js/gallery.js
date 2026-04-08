@@ -137,8 +137,10 @@ let currentDropTarget = null;
 
 const BLOCK_PALETTE_ITEMS = [
   { type: 'text', label: '텍스트', icon: 'T' },
+  { type: 'heading', label: '헤딩', icon: 'H' },
   { type: 'image', label: '이미지', icon: '▣' },
   { type: 'container', label: '컨테이너', icon: '⊞' },
+  { type: 'divider', label: '구분선', icon: '—' },
 ];
 
 /**
@@ -571,6 +573,100 @@ function createContainerBlock(block) {
   return node;
 }
 
+function createHeadingBlock(block) {
+  const template = document.getElementById('heading-block-template');
+  const node = template.content.firstElementChild.cloneNode(true);
+  node.dataset.level = String(block.level);
+  const textEl = node.querySelector('.heading-text');
+  textEl.textContent = block.text;
+
+  let originalText = '';
+  let escaped = false;
+
+  node.addEventListener('click', () => {
+    if (textEl.contentEditable === 'true') return;
+    originalText = textEl.textContent;
+    escaped = false;
+    textEl.contentEditable = 'true';
+    node.classList.add('is-editing');
+    textEl.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    range.collapse(false);
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+  });
+
+  textEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      escaped = true;
+      textEl.textContent = originalText;
+      textEl.contentEditable = 'false';
+      node.classList.remove('is-editing');
+      return;
+    }
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+
+    // Detect markdown-style prefix: #, ##, ### followed by space or enter
+    const raw = textEl.textContent;
+    const match = raw.match(/^(#{1,3})\s*/);
+    if (!match) {
+      if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
+      return;
+    }
+
+    e.preventDefault();
+    const newLevel = match[1].length;
+    const newText = raw.slice(match[0].length);
+
+    textEl.textContent = newText;
+    node.dataset.level = String(newLevel);
+
+    const patch = {};
+    if (newLevel !== block.level) patch.level = newLevel;
+    if (newText !== originalText) patch.text = newText;
+    if (Object.keys(patch).length) {
+      block.level = newLevel;
+      originalText = newText;
+      apiPatchBlock(block.id, patch).catch(console.error);
+    }
+
+    textEl.contentEditable = 'false';
+    node.classList.remove('is-editing');
+  });
+
+  textEl.addEventListener('blur', () => {
+    if (textEl.contentEditable !== 'true') return;
+    textEl.contentEditable = 'false';
+    node.classList.remove('is-editing');
+    if (escaped) { escaped = false; return; }
+
+    const raw = textEl.textContent;
+    const match = raw.match(/^(#{1,3})\s*/);
+    const newLevel = match ? match[1].length : block.level;
+    const newText = match ? raw.slice(match[0].length) : raw.trim();
+
+    textEl.textContent = newText;
+    node.dataset.level = String(newLevel);
+
+    const patch = {};
+    if (newLevel !== block.level) patch.level = newLevel;
+    if (newText !== originalText) patch.text = newText;
+    if (Object.keys(patch).length) {
+      block.level = newLevel;
+      originalText = newText;
+      apiPatchBlock(block.id, patch).catch(console.error);
+    }
+  });
+
+  return node;
+}
+
+function createDividerBlock() {
+  const template = document.getElementById('divider-block-template');
+  return template.content.firstElementChild.cloneNode(true);
+}
+
 function createPageBlock(block) {
   const template = document.getElementById('page-block-template');
   const node = template.content.firstElementChild.cloneNode(true);
@@ -587,11 +683,17 @@ function renderBlock(block, parentBlockId = null) {
     case 'text':
       blockEl = createTextBlock(block);
       break;
+    case 'heading':
+      blockEl = createHeadingBlock(block);
+      break;
     case 'image':
       blockEl = createImageBlock(block);
       break;
     case 'container':
       blockEl = createContainerBlock(block);
+      break;
+    case 'divider':
+      blockEl = createDividerBlock();
       break;
     case 'page':
       blockEl = createPageBlock(block);
