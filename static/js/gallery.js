@@ -51,6 +51,20 @@ async function apiCreateBlock(documentId, type, parentBlockId = null) {
   return res.json();
 }
 
+async function apiDeleteBlock(blockId) {
+  const res = await fetch(`/api/blocks/${blockId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete block');
+}
+
+async function apiMoveBlock(blockId, beforeBlockId) {
+  const res = await fetch(`/api/blocks/${blockId}/position`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ before_block_id: beforeBlockId }),
+  });
+  if (!res.ok) throw new Error('Failed to move block');
+}
+
 // ── Inline editing helpers ────────────────────────────────────────────────────
 
 /**
@@ -112,6 +126,12 @@ function enableContentEditable(el, blockId, field, notionBlock) {
 // knowing about the active document or load function.
 let navigateTo = null;
 let addBlock = null; // (type, parentBlockId?) => Promise<void>
+let reloadDocument = null; // () => void — reload the active document
+
+// ── Drag state ────────────────────────────────────────────────────────────────
+let currentDragBlockId = null;
+let currentDragParentBlockId = null;
+let currentDropTarget = null;
 
 // ── Block palette (slash command / + button) ─────────────────────────────────
 
@@ -184,6 +204,237 @@ function createBlockAdder() {
 
   adder.appendChild(btn);
   return adder;
+}
+
+// ── Block delete confirmation overlay ─────────────────────────────────────────
+
+function showBlockDeleteConfirm(wrapperEl, blockId) {
+  document.querySelectorAll('.block-delete-confirm').forEach((c) => c.remove());
+
+  const dialog = document.createElement('div');
+  dialog.className = 'block-delete-confirm';
+
+  const text = document.createElement('span');
+  text.className = 'block-delete-confirm-text';
+  text.textContent = '정말 삭제할까요?';
+
+  const btns = document.createElement('div');
+  btns.className = 'block-delete-confirm-btns';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'block-delete-cancel-btn';
+  cancelBtn.textContent = '취소';
+
+  const okBtn = document.createElement('button');
+  okBtn.type = 'button';
+  okBtn.className = 'block-delete-ok-btn';
+  okBtn.textContent = '삭제';
+
+  btns.appendChild(cancelBtn);
+  btns.appendChild(okBtn);
+  dialog.appendChild(text);
+  dialog.appendChild(btns);
+  wrapperEl.appendChild(dialog);
+
+  let removeOutsideListener = () => {};
+
+  function close() {
+    removeOutsideListener();
+    dialog.remove();
+  }
+
+  cancelBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    close();
+  });
+
+  okBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    close();
+    try {
+      await apiDeleteBlock(blockId);
+      if (reloadDocument) reloadDocument();
+    } catch (err) {
+      console.error('블록 삭제 실패:', err);
+    }
+  });
+
+  setTimeout(() => {
+    function onOutside(e) {
+      if (!dialog.contains(e.target)) close();
+    }
+    document.addEventListener('click', onOutside, true);
+    removeOutsideListener = () => document.removeEventListener('click', onOutside, true);
+  }, 0);
+}
+
+// ── Block wrapper (drag handle + more menu) ───────────────────────────────────
+
+/**
+ * Wrap a block element with a drag handle and more-menu.
+ * @param {HTMLElement} blockEl      - The rendered block element
+ * @param {object}      block        - Block data (id, type, …)
+ * @param {string|null} parentBlockId - Parent block id (null for top-level)
+ */
+function wrapBlock(blockEl, block, parentBlockId = null) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'block-wrapper';
+  wrapper.dataset.blockId = block.id;
+  wrapper.dataset.parentBlockId = parentBlockId ?? '';
+
+  // ── Actions bar ──────────────────────────────────────────────────────────
+  const actions = document.createElement('div');
+  actions.className = 'block-actions';
+
+  // Drag handle
+  const dragHandle = document.createElement('button');
+  dragHandle.type = 'button';
+  dragHandle.className = 'block-drag-handle';
+  dragHandle.setAttribute('aria-label', '드래그하여 이동');
+  dragHandle.textContent = '⠿';
+
+  // More button + menu
+  const moreWrap = document.createElement('div');
+  moreWrap.className = 'block-more-wrap';
+
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'block-more-btn';
+  moreBtn.setAttribute('aria-label', '더보기');
+  moreBtn.textContent = '⋯';
+
+  const moreMenu = document.createElement('div');
+  moreMenu.className = 'block-more-menu';
+  moreMenu.hidden = true;
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'block-delete-btn';
+  deleteBtn.textContent = '삭제';
+
+  moreMenu.appendChild(deleteBtn);
+  moreWrap.appendChild(moreBtn);
+  moreWrap.appendChild(moreMenu);
+  actions.appendChild(dragHandle);
+  actions.appendChild(moreWrap);
+  wrapper.appendChild(actions);
+  wrapper.appendChild(blockEl);
+
+  // ── More menu toggle ──────────────────────────────────────────────────────
+  moreBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasHidden = moreMenu.hidden;
+    document.querySelectorAll('.block-more-menu').forEach((m) => (m.hidden = true));
+    moreMenu.hidden = !wasHidden;
+  });
+
+  // ── Delete with confirmation ──────────────────────────────────────────────
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    moreMenu.hidden = true;
+    showBlockDeleteConfirm(wrapper, block.id);
+  });
+
+  // ── Drag and Drop ─────────────────────────────────────────────────────────
+  // Only become draggable when the drag handle is pressed.
+  // Reset on mouseup (document-level) to cover the case where the user
+  // presses the handle but releases without starting a drag.
+  dragHandle.addEventListener('mousedown', () => {
+    wrapper.draggable = true;
+    function onMouseUp() {
+      if (!currentDragBlockId) wrapper.draggable = false;
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  wrapper.addEventListener('dragstart', (e) => {
+    if (!wrapper.draggable) {
+      e.preventDefault();
+      return;
+    }
+    currentDragBlockId = block.id;
+    currentDragParentBlockId = parentBlockId ?? '';
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', block.id); // required for Firefox
+    wrapper.classList.add('is-dragging');
+  });
+
+  wrapper.addEventListener('dragend', () => {
+    wrapper.draggable = false;
+    wrapper.classList.remove('is-dragging');
+    currentDragBlockId = null;
+    currentDragParentBlockId = null;
+    if (currentDropTarget) {
+      currentDropTarget.classList.remove('drop-above', 'drop-below');
+      currentDropTarget = null;
+    }
+  });
+
+  wrapper.addEventListener('dragover', (e) => {
+    if (!currentDragBlockId) return;
+    // Only allow drops from same-parent siblings
+    if (currentDragParentBlockId !== (parentBlockId ?? '')) return;
+    if (currentDragBlockId === block.id) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (currentDropTarget && currentDropTarget !== wrapper) {
+      currentDropTarget.classList.remove('drop-above', 'drop-below');
+    }
+    currentDropTarget = wrapper;
+
+    const rect = wrapper.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const isAbove = e.clientY < midY;
+    wrapper.classList.toggle('drop-above', isAbove);
+    wrapper.classList.toggle('drop-below', !isAbove);
+  });
+
+  wrapper.addEventListener('dragleave', (e) => {
+    if (!wrapper.contains(e.relatedTarget)) {
+      wrapper.classList.remove('drop-above', 'drop-below');
+    }
+  });
+
+  wrapper.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    wrapper.classList.remove('drop-above', 'drop-below');
+    currentDropTarget = null;
+
+    if (!currentDragBlockId || currentDragBlockId === block.id) return;
+    if (currentDragParentBlockId !== (parentBlockId ?? '')) return;
+
+    const rect = wrapper.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    let beforeBlockId;
+    if (e.clientY < midY) {
+      beforeBlockId = block.id;
+    } else {
+      // Skip the dragged block itself if it happens to be the immediate next sibling
+      let next = wrapper.nextElementSibling;
+      while (next && next.dataset.blockId === currentDragBlockId) {
+        next = next.nextElementSibling;
+      }
+      beforeBlockId = (next && next.classList.contains('block-wrapper'))
+        ? next.dataset.blockId
+        : null;
+    }
+
+    try {
+      await apiMoveBlock(currentDragBlockId, beforeBlockId);
+      if (reloadDocument) reloadDocument();
+    } catch (err) {
+      console.error('블록 이동 실패:', err);
+    }
+  });
+
+  return wrapper;
 }
 
 // ── Block renderers ──────────────────────────────────────────────────────────
@@ -314,7 +565,7 @@ function createContainerBlock(block) {
   }
 
   block.children.forEach((child) => {
-    childrenRoot.appendChild(renderBlock(child));
+    childrenRoot.appendChild(renderBlock(child, block.id));
   });
 
   return node;
@@ -330,23 +581,29 @@ function createPageBlock(block) {
   return node;
 }
 
-function renderBlock(block) {
+function renderBlock(block, parentBlockId = null) {
+  let blockEl;
   switch (block.type) {
     case 'text':
-      return createTextBlock(block);
+      blockEl = createTextBlock(block);
+      break;
     case 'image':
-      return createImageBlock(block);
+      blockEl = createImageBlock(block);
+      break;
     case 'container':
-      return createContainerBlock(block);
+      blockEl = createContainerBlock(block);
+      break;
     case 'page':
-      return createPageBlock(block);
+      blockEl = createPageBlock(block);
+      break;
     default: {
       const unsupported = document.createElement('p');
       unsupported.className = 'notion-block unsupported-block';
       unsupported.textContent = `지원하지 않는 블록 타입: ${block.type}`;
-      return unsupported;
+      blockEl = unsupported;
     }
   }
+  return wrapBlock(blockEl, block, parentBlockId);
 }
 
 // ── Document page renderer ───────────────────────────────────────────────────
@@ -512,6 +769,10 @@ async function initGallery() {
     loadDocument(documentId);
   };
 
+  reloadDocument = () => {
+    if (activeDocId) loadDocument(activeDocId);
+  };
+
   async function loadDocument(documentId, { focusNewBlock = false } = {}) {
     activeDocId = documentId;
     addBlock = async (type, parentBlockId = null) => {
@@ -522,16 +783,16 @@ async function initGallery() {
       const payload = await fetchDocument(documentId);
       renderDocument(payload);
       if (focusNewBlock) {
-        // Use :scope > to target only top-level blocks, excluding nested blocks inside containers
-        const topBlocks = root.querySelectorAll(':scope > .notion-block');
-        if (topBlocks.length > 0) {
-          const lastBlock = topBlocks[topBlocks.length - 1];
-          // For text blocks the element itself is the click target;
-          // for image/container, fall back to a focusable descendant
-          const focusTarget = lastBlock.classList.contains('notion-text')
-            ? lastBlock
-            : (lastBlock.querySelector('.notion-caption, .container-title') ?? lastBlock);
-          focusTarget.click();
+        const topWrappers = root.querySelectorAll(':scope > .block-wrapper');
+        if (topWrappers.length > 0) {
+          const lastWrapper = topWrappers[topWrappers.length - 1];
+          const lastBlock = lastWrapper.querySelector('.notion-block');
+          if (lastBlock) {
+            const focusTarget = lastBlock.classList.contains('notion-text')
+              ? lastBlock
+              : (lastBlock.querySelector('.notion-caption, .container-title') ?? lastBlock);
+            focusTarget.click();
+          }
         }
       }
     } catch (err) {
@@ -577,8 +838,11 @@ async function initGallery() {
     },
   };
 
-  // Close menus when clicking outside the sidebar
-  document.addEventListener('click', () => closeAllMenus(list));
+  // Close document menus and block more-menus when clicking outside
+  document.addEventListener('click', () => {
+    closeAllMenus(list);
+    document.querySelectorAll('.block-more-menu').forEach((m) => (m.hidden = true));
+  });
 
   // Load initial document list
   try {
