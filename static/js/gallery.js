@@ -137,7 +137,6 @@ let currentDropTarget = null;
 
 const BLOCK_PALETTE_ITEMS = [
   { type: 'text', label: '텍스트', icon: 'T' },
-  { type: 'heading', label: '헤딩', icon: 'H' },
   { type: 'image', label: '이미지', icon: '▣' },
   { type: 'container', label: '컨테이너', icon: '⊞' },
   { type: 'divider', label: '구분선', icon: '—' },
@@ -445,16 +444,71 @@ function createTextBlock(block) {
   const template = document.getElementById('text-block-template');
   const node = template.content.firstElementChild.cloneNode(true);
   node.textContent = block.text;
+
+  // Apply heading level if present
+  if (block.level) node.dataset.level = String(block.level);
+
+  let originalText = node.textContent;
+  let currentLevel = block.level ?? null;
+
   enableContentEditable(node, block.id, 'text', node);
 
-  // Slash command: open block palette when '/' is typed in an empty block
   node.addEventListener('keydown', (e) => {
+    // Slash command: open block palette when '/' is typed in an empty block
     if (e.key === '/' && node.contentEditable === 'true' && !node.textContent.trim()) {
       e.preventDefault();
-      node.blur(); // commit any in-progress edit (e.g. cleared text) before opening palette
+      node.blur();
       openBlockPalette(node);
+      return;
+    }
+
+    if (node.contentEditable !== 'true') return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+
+    // Markdown heading promotion: only when content is exactly #, ##, or ###
+    const raw = node.textContent;
+    const exactPrefix = raw.match(/^(#{1,3})$/);
+    if (!exactPrefix) {
+      if (e.key === 'Enter') { e.preventDefault(); node.blur(); }
+      return;
+    }
+
+    e.preventDefault();
+    const newLevel = exactPrefix[1].length;
+    node.textContent = '';
+    node.dataset.level = String(newLevel);
+
+    const patch = {};
+    if (newLevel !== currentLevel) patch.level = newLevel;
+    if ('' !== originalText) patch.text = '';
+    if (Object.keys(patch).length) {
+      currentLevel = newLevel;
+      originalText = '';
+      apiPatchBlock(block.id, patch).catch(console.error);
     }
   });
+
+  // On blur: also handle pasted "# Title" form (prefix + mandatory whitespace)
+  node.addEventListener('blur', () => {
+    if (node.contentEditable !== 'false') return; // enableContentEditable already committed
+    const raw = node.textContent;
+    const match = raw.match(/^(#{1,3})\s+(\S.*)?$/);
+    if (!match) return;
+
+    const newLevel = match[1].length;
+    const newText = (match[2] ?? '').trimEnd();
+    node.textContent = newText;
+    node.dataset.level = String(newLevel);
+
+    const patch = {};
+    if (newLevel !== currentLevel) patch.level = newLevel;
+    if (newText !== originalText) patch.text = newText;
+    if (Object.keys(patch).length) {
+      currentLevel = newLevel;
+      originalText = newText;
+      apiPatchBlock(block.id, patch).catch(console.error);
+    }
+  }, true); // capture: runs after enableContentEditable's blur
 
   return node;
 }
@@ -573,96 +627,6 @@ function createContainerBlock(block) {
   return node;
 }
 
-function createHeadingBlock(block) {
-  const template = document.getElementById('heading-block-template');
-  const node = template.content.firstElementChild.cloneNode(true);
-  node.dataset.level = String(block.level);
-  const textEl = node.querySelector('.heading-text');
-  textEl.textContent = block.text;
-
-  let originalText = '';
-  let escaped = false;
-
-  node.addEventListener('click', () => {
-    if (textEl.contentEditable === 'true') return;
-    originalText = textEl.textContent;
-    escaped = false;
-    textEl.contentEditable = 'true';
-    node.classList.add('is-editing');
-    textEl.focus();
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(textEl);
-    range.collapse(false);
-    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
-  });
-
-  textEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      escaped = true;
-      textEl.textContent = originalText;
-      textEl.contentEditable = 'false';
-      node.classList.remove('is-editing');
-      return;
-    }
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-
-    // Transform only when the entire content is exactly #, ##, or ### (no trailing text).
-    // This matches Notion's behavior: typing "# " on an empty/pure-hash line promotes level.
-    const raw = textEl.textContent;
-    const exactPrefix = raw.match(/^(#{1,3})$/);
-    if (!exactPrefix) {
-      if (e.key === 'Enter') { e.preventDefault(); textEl.blur(); }
-      return;
-    }
-
-    e.preventDefault();
-    const newLevel = exactPrefix[1].length;
-    const newText = '';
-
-    textEl.textContent = newText;
-    node.dataset.level = String(newLevel);
-
-    const patch = {};
-    if (newLevel !== block.level) patch.level = newLevel;
-    if (newText !== originalText) patch.text = newText;
-    if (Object.keys(patch).length) {
-      block.level = newLevel;
-      originalText = newText;
-      apiPatchBlock(block.id, patch).catch(console.error);
-    }
-    // Stay in editing mode so the user can continue typing the heading text
-    textEl.focus();
-  });
-
-  textEl.addEventListener('blur', () => {
-    if (textEl.contentEditable !== 'true') return;
-    textEl.contentEditable = 'false';
-    node.classList.remove('is-editing');
-    if (escaped) { escaped = false; return; }
-
-    const raw = textEl.textContent;
-    // On blur, allow "# Title" (prefix + mandatory whitespace + text) from paste/etc.
-    const match = raw.match(/^(#{1,3})\s+(\S.*)?$/);
-    const newLevel = match ? match[1].length : block.level;
-    const newText = match ? (match[2] ?? '').trimEnd() : raw.trim();
-
-    textEl.textContent = newText;
-    node.dataset.level = String(newLevel);
-
-    const patch = {};
-    if (newLevel !== block.level) patch.level = newLevel;
-    if (newText !== originalText) patch.text = newText;
-    if (Object.keys(patch).length) {
-      block.level = newLevel;
-      originalText = newText;
-      apiPatchBlock(block.id, patch).catch(console.error);
-    }
-  });
-
-  return node;
-}
-
 function createDividerBlock() {
   const template = document.getElementById('divider-block-template');
   return template.content.firstElementChild.cloneNode(true);
@@ -683,9 +647,6 @@ function renderBlock(block, parentBlockId = null) {
   switch (block.type) {
     case 'text':
       blockEl = createTextBlock(block);
-      break;
-    case 'heading':
-      blockEl = createHeadingBlock(block);
       break;
     case 'image':
       blockEl = createImageBlock(block);

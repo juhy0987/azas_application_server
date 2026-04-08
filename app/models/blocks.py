@@ -13,10 +13,11 @@ class BlockBase(BaseModel):
 
 
 class TextBlock(BlockBase):
-  """Plain text paragraph or heading-like block."""
+  """Plain text paragraph, optionally promoted to a heading via level."""
 
   type: Literal["text"]
   text: str
+  level: Literal[1, 2, 3] | None = None
 
 
 class ImageBlock(BlockBase):
@@ -36,14 +37,6 @@ class ContainerBlock(BlockBase):
   children: list["Block"] = Field(default_factory=list)
 
 
-class HeadingBlock(BlockBase):
-  """Heading block with level (H1–H3) and text content."""
-
-  type: Literal["heading"]
-  level: Literal[1, 2, 3] = 1
-  text: str
-
-
 class DividerBlock(BlockBase):
   """Horizontal divider block."""
 
@@ -59,7 +52,7 @@ class PageBlock(BlockBase):
 
 
 Block = Annotated[
-  TextBlock | ImageBlock | ContainerBlock | HeadingBlock | DividerBlock | PageBlock,
+  TextBlock | ImageBlock | ContainerBlock | DividerBlock | PageBlock,
   Field(discriminator="type"),
 ]
 

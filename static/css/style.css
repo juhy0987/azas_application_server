@@ -334,44 +334,26 @@ body {
   color: #6f3f37;
 }
 
-/* ── Heading block ───────────────────────────────────────────────────────── */
+/* ── Heading via TextBlock (data-level) ──────────────────────────────────── */
 
-.notion-heading {
-  margin: 0;
-  padding: 0.32rem;
-  cursor: text;
-}
-
-.heading-text {
-  display: block;
-  min-height: 1.2em;
-  outline: none;
-}
-
-.notion-heading[data-level="1"] .heading-text {
+.notion-text[data-level="1"] {
   font-family: "Fraunces", serif;
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--ink);
 }
 
-.notion-heading[data-level="2"] .heading-text {
+.notion-text[data-level="2"] {
   font-family: "Fraunces", serif;
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--ink);
 }
 
-.notion-heading[data-level="3"] .heading-text {
+.notion-text[data-level="3"] {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--ink-soft);
-}
-
-.notion-heading:not(.is-editing):hover {
-  cursor: text;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 4px;
 }
 
 /* ── Divider block ───────────────────────────────────────────────────────── */
