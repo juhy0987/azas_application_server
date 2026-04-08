@@ -905,11 +905,11 @@ async function initGallery() {
     if (activeDocId) loadDocument(activeDocId);
   };
 
-  async function loadDocument(documentId, { focusNewBlock = false } = {}) {
+  async function loadDocument(documentId, { focusBlockId = null } = {}) {
     activeDocId = documentId;
     addBlock = async (type, parentBlockId = null) => {
-      await apiCreateBlock(activeDocId, type, parentBlockId);
-      await loadDocument(activeDocId, { focusNewBlock: true });
+      const newBlock = await apiCreateBlock(activeDocId, type, parentBlockId);
+      await loadDocument(activeDocId, { focusBlockId: newBlock.id });
     };
     addBlockAfter = async (type, afterBlockId, parentBlockId = null) => {
       const newBlock = await apiCreateBlock(activeDocId, type, parentBlockId);
@@ -918,7 +918,7 @@ async function initGallery() {
       if (nextWrapper?.dataset?.blockId) {
         await apiMoveBlock(newBlock.id, nextWrapper.dataset.blockId);
       }
-      await loadDocument(activeDocId, { focusNewBlock: true });
+      await loadDocument(activeDocId, { focusBlockId: newBlock.id });
     };
     try {
       const payload = await fetchDocument(documentId);
@@ -927,23 +927,20 @@ async function initGallery() {
       const rootBlocks = payload.blocks;
       const lastBlock = rootBlocks[rootBlocks.length - 1];
       if (!lastBlock || lastBlock.type !== 'text') {
-        await apiCreateBlock(activeDocId, 'text');
-        await loadDocument(documentId, { focusNewBlock });
+        const newBlock = await apiCreateBlock(activeDocId, 'text');
+        await loadDocument(documentId, { focusBlockId: focusBlockId ?? newBlock.id });
         return;
       }
 
       renderDocument(payload);
-      if (focusNewBlock) {
-        const topWrappers = root.querySelectorAll(':scope > .block-wrapper');
-        if (topWrappers.length > 0) {
-          const lastWrapper = topWrappers[topWrappers.length - 1];
-          const lastBlock = lastWrapper.querySelector('.notion-block');
-          if (lastBlock) {
-            const focusTarget = lastBlock.classList.contains('notion-text')
-              ? lastBlock
-              : (lastBlock.querySelector('.notion-caption, .container-title') ?? lastBlock);
-            focusTarget.click();
-          }
+      if (focusBlockId) {
+        const targetWrapper = root.querySelector(`[data-block-id="${focusBlockId}"]`);
+        const targetBlock = targetWrapper?.querySelector('.notion-block');
+        if (targetBlock) {
+          const focusTarget = targetBlock.classList.contains('notion-text')
+            ? targetBlock
+            : (targetBlock.querySelector('.notion-caption, .container-title') ?? targetBlock);
+          focusTarget.click();
         }
       }
     } catch (err) {
