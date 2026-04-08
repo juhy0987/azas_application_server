@@ -42,8 +42,11 @@ def move_block(
   repo: SQLiteBlockRepository = Depends(get_repository),
 ) -> dict[str, str]:
   """Reorder a block among its siblings."""
-  if not repo.move_block(block_id, body.before_block_id):
-    raise HTTPException(status_code=422, detail="Block not found or invalid before_block_id")
+  result = repo.move_block(block_id, body.before_block_id)
+  if result is None:
+    raise HTTPException(status_code=404, detail="Block not found")
+  if result is False:
+    raise HTTPException(status_code=422, detail="Invalid before_block_id")
   return {"id": block_id}
 
 

@@ -357,6 +357,7 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
     currentDragBlockId = block.id;
     currentDragParentBlockId = parentBlockId ?? '';
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', block.id); // required for Firefox
     wrapper.classList.add('is-dragging');
   });
 
@@ -415,7 +416,11 @@ function wrapBlock(blockEl, block, parentBlockId = null) {
     if (e.clientY < midY) {
       beforeBlockId = block.id;
     } else {
-      const next = wrapper.nextElementSibling;
+      // Skip the dragged block itself if it happens to be the immediate next sibling
+      let next = wrapper.nextElementSibling;
+      while (next && next.dataset.blockId === currentDragBlockId) {
+        next = next.nextElementSibling;
+      }
       beforeBlockId = (next && next.classList.contains('block-wrapper'))
         ? next.dataset.blockId
         : null;

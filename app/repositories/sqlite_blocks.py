@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -267,31 +266,42 @@ class SQLiteBlockRepository:
     return True
 
   def _collect_subtree_ids(self, conn: sqlite3.Connection, root_id: str) -> list[str]:
-    """BFS to collect root_id and all descendant block IDs."""
-    result: list[str] = []
-    queue: deque[str] = deque([root_id])
-    while queue:
-      current = queue.popleft()
-      result.append(current)
-      children = conn.execute(
-        "SELECT id FROM blocks WHERE parent_block_id = ?", (current,)
-      ).fetchall()
-      queue.extend(row[0] for row in children)
-    return result
+    """Collect root_id and all descendant block IDs via a single recursive CTE."""
+    rows = conn.execute(
+      """
+      WITH RECURSIVE subtree(id) AS (
+        SELECT id FROM blocks WHERE id = ?
+        UNION ALL
+        SELECT b.id FROM blocks b
+        INNER JOIN subtree s ON b.parent_block_id = s.id
+      )
+      SELECT id FROM subtree
+      """,
+      (root_id,),
+    ).fetchall()
+    return [row[0] for row in rows]
 
-  def move_block(self, block_id: str, before_block_id: str | None) -> bool:
+  def move_block(self, block_id: str, before_block_id: str | None) -> bool | None:
     """Reorder a block among its siblings.
 
     Moves block_id to be immediately before before_block_id.
     If before_block_id is None, moves to the end of the sibling list.
+
+    Returns:
+      True   — success (including no-op when before_block_id == block_id)
+      None   — block_id not found
+      False  — before_block_id is not a valid sibling
     """
+    if before_block_id == block_id:
+      return True  # no-op: moving a block before itself
+
     with sqlite3.connect(self._db_path) as conn:
       row = conn.execute(
         "SELECT document_id, parent_block_id FROM blocks WHERE id = ?",
         (block_id,),
       ).fetchone()
       if row is None:
-        return False
+        return None
       document_id, parent_block_id = row
 
       siblings = conn.execute(
