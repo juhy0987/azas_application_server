@@ -19,18 +19,11 @@ body {
   min-height: 100vh;
   color: var(--ink);
   font-family: "SUIT", sans-serif;
-  background:
-    radial-gradient(circle at 88% 6%, rgba(0, 112, 109, 0.13), transparent 28%),
-    radial-gradient(circle at 14% 80%, rgba(204, 147, 73, 0.14), transparent 24%),
-    linear-gradient(180deg, var(--paper), #f3ecdd 52%, #f7f2e8);
+  background: #ffffff;
 }
 
 .ambient-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(rgba(52, 45, 31, 0.035) 1px, transparent 1px);
-  background-size: 100% 34px;
+  display: none;
 }
 
 .topbar {
@@ -71,10 +64,10 @@ body {
 
 .document-list-panel,
 .block-page {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  box-shadow: 0 24px 35px -24px var(--shadow);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .document-list-panel {
@@ -132,8 +125,8 @@ body {
 .document-item {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
   text-align: left;
   padding: 0.62rem 0.75rem;
@@ -142,11 +135,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.document-item:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .document-item.is-active {
   background: var(--accent-soft);
-  border-color: rgba(0, 112, 109, 0.45);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .document-title-input {
@@ -211,7 +210,7 @@ body {
 }
 
 .block-page-header {
-  border-bottom: 1px solid var(--line);
+  border-bottom: none;
   margin-bottom: 1rem;
   padding-bottom: 0.85rem;
 }
@@ -240,19 +239,19 @@ body {
 .notion-text {
   margin: 0;
   line-height: 1.6;
-  background: #f7f2e6;
-  border: 1px solid #e2d8c4;
-  border-radius: 12px;
-  padding: 0.72rem 0.82rem;
-  min-height: calc(1.6em + 1.44rem); /* = line-height + padding-top + padding-bottom; box-sizing: border-box이므로 padding을 포함해야 빈 블록 높이가 유지됨 */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0.32rem 0.2rem;
+  min-height: calc(1.6em + 0.64rem); /* line-height + padding-top + padding-bottom */
 }
 
 .notion-image-wrap {
   margin: 0;
-  border: 1px solid #dfd4c0;
-  border-radius: 14px;
+  border: none;
+  border-radius: 10px;
   overflow: hidden;
-  background: #fcf9f2;
+  background: transparent;
 }
 
 .notion-image {
@@ -269,10 +268,11 @@ body {
 }
 
 .notion-container {
-  border: 1px dashed #d8cab1;
-  border-radius: 14px;
-  background: #fff8ed;
-  padding: 0.85rem;
+  border: none;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.4rem 0 0.4rem 1rem;
 }
 
 .container-title {
@@ -297,18 +297,18 @@ body {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  padding: 0.62rem 0.82rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
+  padding: 0.46rem 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
+  width: fit-content;
 }
 
 .notion-page:hover {
   background: var(--accent-soft);
-  border-color: rgba(0, 112, 109, 0.45);
 }
 
 .page-block-icon {
@@ -337,16 +337,17 @@ body {
 /* ── Inline editing ──────────────────────────────────────────────────────── */
 
 .notion-block.is-editing {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: 0 2px 16px -4px rgba(0, 112, 109, 0.18), 0 1px 4px -1px rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
 }
 
 /* Hover hint: text and container title indicate they're editable */
 .notion-text:not([contenteditable="true"]):hover,
 .container-title:not([contenteditable="true"]):hover {
   cursor: text;
-  outline: 1px solid var(--line);
-  outline-offset: 2px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
 }
 
 .notion-image:hover {
@@ -464,6 +465,7 @@ body {
 
 .block-wrapper {
   position: relative;
+  padding-left: 4px;
 }
 
 .block-actions {
