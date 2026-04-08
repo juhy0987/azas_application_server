@@ -65,7 +65,7 @@ def change_block_type(
 ) -> dict[str, str]:
   """Change a block's type and reset its content to defaults."""
   if not repo.change_block_type(block_id, body.type):
-    raise HTTPException(status_code=404, detail="Block not found or unsupported type")
+    raise HTTPException(status_code=404, detail="Block not found")
   return {"id": block_id}
 
 

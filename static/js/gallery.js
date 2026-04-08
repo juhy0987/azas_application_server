@@ -153,13 +153,6 @@ const BLOCK_PALETTE_ITEMS = [
   { type: 'divider', label: '구분선', icon: '—' },
 ];
 
-const BLOCK_TYPE_ICONS = {
-  text: 'T',
-  image: '▣',
-  container: '⊞',
-  divider: '—',
-  page: '⊡',
-};
 
 /**
  * Show the block type selection palette below anchorEl.
@@ -206,25 +199,6 @@ function openBlockPalette(anchorEl, parentBlockId = null, onSelect = null) {
     document.addEventListener('click', onOutside, true);
     removeOutsideListener = () => document.removeEventListener('click', onOutside, true);
   }, 0);
-}
-
-/** + button rendered at the bottom of block-root. */
-function createBlockAdder() {
-  const adder = document.createElement('div');
-  adder.className = 'block-adder';
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'block-adder-btn';
-  btn.setAttribute('aria-label', '블록 추가');
-  btn.textContent = '+';
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openBlockPalette(adder);
-  });
-
-  adder.appendChild(btn);
-  return adder;
 }
 
 // ── Block delete confirmation overlay ─────────────────────────────────────────
@@ -522,16 +496,16 @@ function createTextBlock(block) {
   let originalText = node.textContent;
   let currentLevel = block.level ?? null;
 
-  const parentBlockId = node.closest('[data-parent-block-id]')?.dataset.parentBlockId || null;
-  let suppressNextEnter = false;
-
   enableContentEditable(node, block.id, 'text', node, {
     onEnter: () => {
-      if (suppressNextEnter) { suppressNextEnter = false; return; }
-      if (addBlockAfter) addBlockAfter('text', block.id, parentBlockId || null);
+      const parentBlockId =
+        node.closest('.block-wrapper')?.dataset.parentBlockId || null;
+      if (addBlockAfter) addBlockAfter('text', block.id, parentBlockId).catch(console.error);
     },
   });
 
+  // Heading promotion handler registered in capture phase to preempt enableContentEditable's
+  // bubble-phase Enter handler, preventing spurious block creation on heading promotion.
   node.addEventListener('keydown', (e) => {
     // Slash command: open block palette when '/' is typed in an empty block
     if (e.key === '/' && node.contentEditable === 'true' && !node.textContent.trim()) {
@@ -553,7 +527,7 @@ function createTextBlock(block) {
     }
 
     e.preventDefault();
-    suppressNextEnter = true;
+    e.stopImmediatePropagation();
     const newLevel = exactPrefix[1].length;
     node.textContent = '';
     node.dataset.level = String(newLevel);
@@ -956,7 +930,7 @@ async function initGallery() {
     try {
       const payload = await fetchDocument(documentId);
 
-      // Ensure the last root-level block is always an empty text block
+      // Ensure the last root-level block is always a text block
       const rootBlocks = payload.blocks;
       const lastBlock = rootBlocks[rootBlocks.length - 1];
       if (!lastBlock || lastBlock.type !== 'text') {
