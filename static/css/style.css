@@ -8,6 +8,7 @@
   --accent-soft: #d9efeb;
   --panel: #fffdf7;
   --shadow: rgba(35, 29, 18, 0.14);
+  --sidebar-w: 260px;
 }
 
 * {
@@ -26,8 +27,40 @@ body {
   display: none;
 }
 
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 1.2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sidebar-brand {
+  padding: 0.2rem 0.1rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.main-area {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-width: 0;
+}
+
 .topbar {
-  max-width: 1200px;
+  max-width: 800px;
   margin: 0 auto;
   padding: 2.6rem 1.2rem 1.2rem;
 }
@@ -53,35 +86,11 @@ body {
   color: var(--ink-soft);
 }
 
-.page-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem 1.2rem 3rem;
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 1rem;
-}
-
-.document-list-panel,
-.block-page {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.document-list-panel {
-  padding: 1rem;
-  align-self: start;
-  position: sticky;
-  top: 0.8rem;
-}
-
 .document-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.8rem;
+  padding: 0 0.1rem;
 }
 
 .document-list-header h2 {
@@ -206,7 +215,9 @@ body {
 }
 
 .block-page {
-  padding: 1.15rem;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1.15rem 1.2rem 3rem;
 }
 
 .block-page-header {
@@ -687,11 +698,29 @@ body {
 }
 
 @media (max-width: 920px) {
-  .page-shell {
-    grid-template-columns: 1fr;
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
   }
 
-  .document-list-panel {
-    position: static;
+  .sidebar-brand {
+    border-bottom: none;
+    padding: 0;
+  }
+
+  .main-area {
+    margin-left: 0;
+  }
+
+  .app-shell {
+    flex-direction: column;
   }
 }

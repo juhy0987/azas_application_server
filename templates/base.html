@@ -12,13 +12,12 @@
 </head>
 <body>
   <div class="ambient-layer"></div>
-  <header class="topbar">
-    <p class="eyebrow">Project Manager</p>
-    <h1>Block-based Project Manager</h1>
-    <p class="subcopy">텍스트, 이미지, 컨테이너 블록을 조합해 노션처럼 프로젝트 페이지를 구성합니다.</p>
-  </header>
-
-  {% block content %}{% endblock %}
+  <div class="app-shell">
+    {% block sidebar %}{% endblock %}
+    <div class="main-area">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
 
   {% block templates %}{% endblock %}
 
