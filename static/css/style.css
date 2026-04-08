@@ -230,6 +230,7 @@ body {
 .block-root {
   display: grid;
   gap: 0.78rem;
+  padding-left: 48px;
 }
 
 .notion-block {
@@ -285,6 +286,7 @@ body {
 .container-children {
   display: grid;
   gap: 0.68rem;
+  padding-left: 48px;
 }
 
 .container-children.is-grid {
@@ -456,6 +458,163 @@ body {
   color: var(--accent);
   min-width: 1em;
   text-align: center;
+}
+
+/* ── Block wrapper & action handles ─────────────────────────────────────── */
+
+.block-wrapper {
+  position: relative;
+}
+
+.block-actions {
+  position: absolute;
+  left: -48px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 5;
+}
+
+.block-wrapper:hover > .block-actions,
+.block-wrapper:focus-within > .block-actions {
+  opacity: 1;
+}
+
+.block-drag-handle,
+.block-more-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  padding: 0.15rem 0.32rem;
+  border-radius: 5px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.block-drag-handle {
+  cursor: grab;
+}
+
+.block-drag-handle:active {
+  cursor: grabbing;
+}
+
+.block-drag-handle:hover,
+.block-more-btn:hover {
+  background: var(--paper-deep);
+}
+
+.block-more-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.block-more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px -6px var(--shadow);
+  min-width: 80px;
+  overflow: hidden;
+}
+
+.block-delete-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  color: #a03030;
+  font-size: 0.88rem;
+}
+
+.block-delete-btn:hover {
+  background: #fdeaea;
+}
+
+/* ── Drag & Drop ─────────────────────────────────────────────────────────── */
+
+.block-wrapper.is-dragging {
+  opacity: 0.35;
+}
+
+.block-wrapper.drop-above {
+  border-top: 2px solid var(--accent);
+  padding-top: 2px;
+}
+
+.block-wrapper.drop-below {
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 2px;
+}
+
+/* ── Block delete confirm overlay ───────────────────────────────────────── */
+
+.block-delete-confirm {
+  position: absolute;
+  inset: 0;
+  background: rgba(253, 234, 234, 0.95);
+  border: 1px solid #e8b4b4;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  z-index: 30;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.88rem;
+  animation: fade-slide-up 0.15s ease both;
+}
+
+.block-delete-confirm-text {
+  color: #6f3f37;
+}
+
+.block-delete-confirm-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.block-delete-cancel-btn,
+.block-delete-ok-btn {
+  border-radius: 7px;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.block-delete-cancel-btn {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.block-delete-cancel-btn:hover {
+  background: var(--paper-deep);
+}
+
+.block-delete-ok-btn {
+  border: 1px solid #c94c4c;
+  background: #c94c4c;
+  color: white;
+}
+
+.block-delete-ok-btn:hover {
+  background: #a83030;
+  border-color: #a83030;
 }
 
 @keyframes fade-slide-up {
