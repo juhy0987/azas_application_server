@@ -75,44 +75,64 @@ body.sidebar-collapsed .main-area {
   max-width: 800px;
   margin: 0 auto;
   padding: 2.6rem 1.2rem 1.2rem;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
 }
 
-.topbar-content {
-  flex: 1;
-  min-width: 0;
-}
+/* ── Sidebar bookmark tab ─────────────────────────────────────────────────── */
 
-.sidebar-toggle-btn {
-  flex-shrink: 0;
-  margin-top: 0.5rem;
-  border: none;
-  background: transparent;
+.sidebar-tab {
+  position: fixed;
+  left: var(--sidebar-w);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 200;
   cursor: pointer;
-  padding: 0.35rem 0.45rem;
-  border-radius: 6px;
-  color: var(--ink-soft);
+
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s;
+  gap: 0.55rem;
+  padding: 0.9rem 0.38rem;
+
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  box-shadow: 3px 2px 10px -4px var(--shadow);
+
+  transition: left 0.25s ease, background 0.15s;
+  user-select: none;
 }
 
-.sidebar-toggle-btn:hover {
-  background: var(--paper-deep);
-  color: var(--ink);
+.sidebar-tab:hover {
+  background: var(--accent-soft);
 }
 
-.sidebar-toggle-icon {
+.sidebar-tab-chevron {
   display: block;
-  width: 16px;
-  height: 12px;
-  background:
-    linear-gradient(currentColor 0%, currentColor 100%) 0 0   / 100% 2px no-repeat,
-    linear-gradient(currentColor 0%, currentColor 100%) 0 50% / 100% 2px no-repeat,
-    linear-gradient(currentColor 0%, currentColor 100%) 0 100% / 100% 2px no-repeat;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: rotate(225deg); /* ← 닫기 방향 */
+  transition: transform 0.25s ease;
+}
+
+.sidebar-tab-label {
+  writing-mode: vertical-rl;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+body.sidebar-collapsed .sidebar-tab {
+  left: 0;
+}
+
+body.sidebar-collapsed .sidebar-tab-chevron {
+  transform: rotate(45deg); /* → 열기 방향 */
 }
 
 .eyebrow {
