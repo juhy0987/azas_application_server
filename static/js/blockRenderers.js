@@ -40,8 +40,8 @@ function createTextBlock(block) {
     },
   });
 
-  // Heading promotion handler registered in capture phase to preempt enableContentEditable's
-  // bubble-phase Enter handler, preventing spurious block creation on heading promotion.
+  // Registered in capture phase to preempt enableContentEditable's bubble-phase Enter handler,
+  // preventing spurious block creation when heading promotion intercepts the keystroke.
   node.addEventListener('keydown', (e) => {
     // Slash command: open block palette when '/' is typed in an empty block
     if (e.key === '/' && node.contentEditable === 'true' && !node.textContent.trim()) {
@@ -76,7 +76,7 @@ function createTextBlock(block) {
       originalText = '';
       apiPatchBlock(block.id, patch).catch(console.error);
     }
-  });
+  }, { capture: true });
 
   // On blur: also handle pasted "# Title" form (prefix + mandatory whitespace)
   node.addEventListener('blur', () => {
