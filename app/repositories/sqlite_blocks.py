@@ -240,6 +240,80 @@ class SQLiteBlockRepository:
 
     return {"id": block_id, "type": block_type, **default_content}
 
+  def delete_block(self, block_id: str) -> bool:
+    """Delete a block and all its descendants. Compacts sibling positions after deletion."""
+    with sqlite3.connect(self._db_path) as conn:
+      row = conn.execute(
+        "SELECT document_id, parent_block_id, position FROM blocks WHERE id = ?",
+        (block_id,),
+      ).fetchone()
+      if row is None:
+        return False
+      document_id, parent_block_id, position = row
+
+      all_ids = self._collect_subtree_ids(conn, block_id)
+      placeholders = ",".join("?" * len(all_ids))
+      conn.execute(f"DELETE FROM blocks WHERE id IN ({placeholders})", all_ids)
+
+      conn.execute(
+        """
+        UPDATE blocks SET position = position - 1
+        WHERE document_id = ? AND parent_block_id IS ? AND position > ?
+        """,
+        (document_id, parent_block_id, position),
+      )
+      conn.commit()
+    return True
+
+  def _collect_subtree_ids(self, conn: sqlite3.Connection, root_id: str) -> list[str]:
+    """BFS to collect root_id and all descendant block IDs."""
+    result: list[str] = []
+    queue = [root_id]
+    while queue:
+      current = queue.pop(0)
+      result.append(current)
+      children = conn.execute(
+        "SELECT id FROM blocks WHERE parent_block_id = ?", (current,)
+      ).fetchall()
+      queue.extend(row[0] for row in children)
+    return result
+
+  def move_block(self, block_id: str, before_block_id: str | None) -> bool:
+    """Reorder a block among its siblings.
+
+    Moves block_id to be immediately before before_block_id.
+    If before_block_id is None, moves to the end of the sibling list.
+    """
+    with sqlite3.connect(self._db_path) as conn:
+      row = conn.execute(
+        "SELECT document_id, parent_block_id FROM blocks WHERE id = ?",
+        (block_id,),
+      ).fetchone()
+      if row is None:
+        return False
+      document_id, parent_block_id = row
+
+      siblings = conn.execute(
+        """
+        SELECT id FROM blocks
+        WHERE document_id = ? AND parent_block_id IS ? AND id != ?
+        ORDER BY position ASC
+        """,
+        (document_id, parent_block_id, block_id),
+      ).fetchall()
+      sibling_ids = [r[0] for r in siblings]
+
+      if before_block_id is not None and before_block_id in sibling_ids:
+        idx = sibling_ids.index(before_block_id)
+        sibling_ids.insert(idx, block_id)
+      else:
+        sibling_ids.append(block_id)
+
+      for i, sid in enumerate(sibling_ids, start=1):
+        conn.execute("UPDATE blocks SET position = ? WHERE id = ?", (i, sid))
+      conn.commit()
+    return True
+
   def delete_document(self, document_id: str) -> bool:
     with sqlite3.connect(self._db_path) as conn:
       cursor = conn.execute("SELECT id FROM documents WHERE id = ?", (document_id,))

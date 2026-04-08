@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from app.dependencies import get_repository
@@ -16,6 +16,10 @@ class BlockPatch(BaseModel):
   title: str | None = None
 
 
+class BlockPositionPatch(BaseModel):
+  before_block_id: str | None = None
+
+
 @router.patch("/{block_id}")
 def patch_block(
   block_id: str,
@@ -29,3 +33,26 @@ def patch_block(
   if not repo.update_block(block_id, patch_data):
     raise HTTPException(status_code=404, detail="Block not found")
   return {"id": block_id}
+
+
+@router.patch("/{block_id}/position")
+def move_block(
+  block_id: str,
+  body: BlockPositionPatch,
+  repo: SQLiteBlockRepository = Depends(get_repository),
+) -> dict[str, str]:
+  """Reorder a block among its siblings."""
+  if not repo.move_block(block_id, body.before_block_id):
+    raise HTTPException(status_code=404, detail="Block not found")
+  return {"id": block_id}
+
+
+@router.delete("/{block_id}", status_code=204)
+def delete_block(
+  block_id: str,
+  repo: SQLiteBlockRepository = Depends(get_repository),
+) -> Response:
+  """Delete a block and all its descendants."""
+  if not repo.delete_block(block_id):
+    raise HTTPException(status_code=404, detail="Block not found")
+  return Response(status_code=204)
