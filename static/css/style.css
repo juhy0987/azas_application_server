@@ -294,7 +294,7 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 .block-page {
   max-width: 800px;
   margin: 0 auto;
-  padding: 1.15rem 1.2rem 3rem;
+  padding: 1.15rem 1.2rem 3rem 4rem; /* left: 4rem = 64px, 버튼(48px) + 여백 확보 */
 }
 
 .block-page-header {
@@ -317,7 +317,6 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 .block-root {
   display: grid;
   gap: 0.39rem;
-  padding-left: 48px;
 }
 
 .notion-block {
@@ -557,7 +556,6 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 
 .block-wrapper {
   position: relative;
-  padding-left: 4px;
 }
 
 .block-actions {
