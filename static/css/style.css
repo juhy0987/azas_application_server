@@ -108,6 +108,13 @@ body.sidebar-collapsed .main-area {
   background: var(--accent-soft);
 }
 
+.sidebar-tab:focus-visible {
+  background: var(--accent-soft);
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 112, 109, 0.18), 3px 2px 10px -4px var(--shadow);
+}
+
 .sidebar-tab-chevron {
   display: block;
   width: 7px;
@@ -779,6 +786,17 @@ body.sidebar-collapsed .sidebar-tab-chevron {
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
+    transform: none;
+  }
+
+  /* 모바일에서는 collapsed 상태여도 사이드바를 항상 표시 (transform이 static에 무효) */
+  body.sidebar-collapsed .sidebar {
+    display: flex;
+  }
+
+  /* 모바일에서는 책갈피 탭 숨김 (토글 불필요) */
+  .sidebar-tab {
+    display: none;
   }
 
   .sidebar-brand {
