@@ -100,31 +100,31 @@ function restoreSelection() {
   }
 }
 
-// ── Inline code toggle ────────────────────────────────────────────────────────
+// ── Inline code apply (no-op if already inside <code>) ───────────────────────
 
-function toggleInlineCode() {
+function applyInlineCode() {
   const sel = window.getSelection();
   if (!sel || !sel.rangeCount || sel.isCollapsed) return;
   const range = sel.getRangeAt(0);
   const ancestor = range.commonAncestorContainer;
-  const codeEl =
+  const alreadyCode =
     ancestor.nodeType === Node.ELEMENT_NODE
       ? ancestor.closest("code")
       : ancestor.parentElement?.closest("code");
 
-  if (codeEl) {
-    codeEl.replaceWith(...codeEl.childNodes);
-  } else {
-    try {
-      const code = document.createElement("code");
-      range.surroundContents(code);
-    } catch {
-      // surroundContents fails when range spans multiple block elements; fall back
-      const frag = range.extractContents();
-      const code = document.createElement("code");
-      code.appendChild(frag);
-      range.insertNode(code);
-    }
+  // Skip if the selection is already inside a <code> element
+  if (alreadyCode) return;
+
+  try {
+    const code = document.createElement("code");
+    range.surroundContents(code);
+  } catch {
+    // surroundContents fails when range spans multiple block elements; fall back
+    const frag = range.extractContents();
+    const code = document.createElement("code");
+    code.appendChild(frag);
+    range.insertNode(code);
+  }
   }
 }
 
@@ -304,7 +304,7 @@ export function initFormattingToolbar() {
 
   // Inline code
   toolbarEl.appendChild(makeFmtBtn("<code style='font-size:0.78rem;background:rgba(255,255,255,0.15);padding:1px 4px;border-radius:3px;color:#f8f8f2'>&lt;/&gt;</code>", "인라인 코드", () => {
-    toggleInlineCode();
+    applyInlineCode();
   }));
 
   toolbarEl.appendChild(makeDivider());
