@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import io
 import uuid
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 UPLOADS_DIR = Path(__file__).resolve().parents[2] / "static" / "uploads"
 THUMBNAILS_DIR = UPLOADS_DIR / "thumbnails"
@@ -40,13 +41,23 @@ def process_image(data: bytes) -> dict[str, str]:
   _ensure_dirs()
 
   name = uuid.uuid4().hex
-  img = Image.open(__import__("io").BytesIO(data)).convert("RGB")
+  img = Image.open(io.BytesIO(data))
+
+  # EXIF orientation 적용 (모바일 사진 회전 보정)
+  img = ImageOps.exif_transpose(img)
+
+  # 투명도(알파) 채널 보존: RGBA/LA/P → RGBA, 나머지 → RGB
+  if img.mode in ("RGBA", "LA", "P"):
+    img = img.convert("RGBA")
+  else:
+    img = img.convert("RGB")
 
   compressed = _downscale(img, MAX_DIMENSION)
   compressed_path = UPLOADS_DIR / f"{name}.webp"
   compressed.save(compressed_path, format="WEBP", quality=COMPRESS_QUALITY, method=6)
 
-  thumb = img.copy()
+  # 이미 축소된 compressed에서 썸네일 생성해 메모리 낭비 방지
+  thumb = compressed.copy()
   thumb.thumbnail(THUMBNAIL_SIZE, Image.LANCZOS)
   thumb_path = THUMBNAILS_DIR / f"{name}.webp"
   thumb.save(thumb_path, format="WEBP", quality=COMPRESS_QUALITY, method=6)

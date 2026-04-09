@@ -133,7 +133,7 @@ function createImageBlock(block) {
           image.src = newUrl;
           apiPatchBlock(block.id, { url: newUrl }).catch(console.error);
         }
-        // URL 확정 후 항상 img로 복귀 (빈 URL 커밋은 무시되므로 currentUrl은 유효)
+        // currentUrl이 있으면 img, 없으면 placeholder로 복귀
         panel.replaceWith(currentUrl ? image : placeholder);
         node.classList.remove('is-editing');
       },
@@ -322,12 +322,19 @@ function buildImageEditPanel({ currentUrl, onCommit, onCancel }) {
     if (!file) return;
     dropLabel.classList.add('is-hidden');
     spinner.classList.remove('is-hidden');
+    spinner.textContent = '업로드 중...';
     try {
       const result = await apiUploadImage(file);
       onCommit(result.url);
     } catch (err) {
       console.error(err);
-      spinner.textContent = '업로드 실패. 다시 시도하세요.';
+      // 실패 시 UI 복구해 재시도 가능하도록
+      spinner.classList.add('is-hidden');
+      dropLabel.classList.remove('is-hidden');
+      dropLabel.textContent = '업로드 실패. 다시 시도하세요.';
+    } finally {
+      // 같은 파일 재선택 시에도 change 이벤트가 발생하도록 초기화
+      fileInput.value = '';
     }
   }
 
