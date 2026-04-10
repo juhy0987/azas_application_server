@@ -549,6 +549,174 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   margin: 0.25rem 0;
 }
 
+/* ── Toggle block ───────────────────────────────────────────────────────── */
+
+.notion-toggle {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.toggle-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.32rem 0.4rem;
+  cursor: pointer;
+  border-radius: 4px;
+  list-style: none;
+  user-select: none;
+}
+
+.toggle-summary::-webkit-details-marker { display: none; }
+
+.toggle-summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  color: var(--ink-soft);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.notion-toggle[open] > .toggle-summary::before {
+  transform: rotate(90deg);
+}
+
+.toggle-summary:hover { background: rgba(0, 0, 0, 0.03); }
+
+.toggle-title {
+  flex: 1;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.5;
+  outline: none;
+}
+
+.toggle-children {
+  padding-left: 1.4rem;
+  padding-top: 0.25rem;
+}
+
+/* ── Quote block ─────────────────────────────────────────────────────────── */
+
+.notion-quote {
+  border: none;
+  border-left: 3px solid var(--accent);
+  margin: 0;
+  padding: 0.4rem 0 0.4rem 1rem;
+  background: transparent;
+}
+
+.quote-text {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+  font-style: italic;
+  outline: none;
+}
+
+.quote-children {
+  margin-top: 0.25rem;
+}
+
+/* ── Code block ──────────────────────────────────────────────────────────── */
+
+.notion-code {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface, #f8f8f8);
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.6rem;
+  background: rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid var(--line);
+  gap: 0.5rem;
+}
+
+.code-language-select {
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  outline: none;
+  padding: 0.1rem 0.2rem;
+}
+
+.code-copy-btn {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.code-copy-btn:hover { background: rgba(0, 0, 0, 0.05); }
+
+.code-body {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+.code-content {
+  display: block;
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre;
+  outline: none;
+  min-height: 1.4em;
+}
+
+/* ── Callout block ───────────────────────────────────────────────────────── */
+
+.notion-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.notion-callout[data-color="yellow"] { background: #fef9c3; border-color: #fde047; }
+.notion-callout[data-color="blue"]   { background: #dbeafe; border-color: #93c5fd; }
+.notion-callout[data-color="green"]  { background: #dcfce7; border-color: #86efac; }
+.notion-callout[data-color="red"]    { background: #fee2e2; border-color: #fca5a5; }
+.notion-callout[data-color="gray"]   { background: #f3f4f6; border-color: #d1d5db; }
+
+.callout-emoji {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+.callout-text {
+  flex: 1;
+  margin: 0;
+  line-height: 1.6;
+  color: var(--ink);
+  outline: none;
+}
+
+/* Hover hint for new editable targets */
+.toggle-title:not([contenteditable="true"]):hover,
+.quote-text:not([contenteditable="true"]):hover,
+.callout-text:not([contenteditable="true"]):hover {
+  cursor: text;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
 /* ── Inline editing ──────────────────────────────────────────────────────── */
 
 .notion-block.is-editing {
