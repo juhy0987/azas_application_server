@@ -966,6 +966,13 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   opacity: 1;
 }
 
+/* Hide parent actions while a child block is hovered or focused */
+.block-wrapper:has(.block-wrapper:hover) > .block-actions,
+.block-wrapper:has(.block-wrapper:focus-within) > .block-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .block-drag-handle,
 .block-insert-btn {
   border: none;
