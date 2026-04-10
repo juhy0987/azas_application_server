@@ -7,14 +7,15 @@
 - 기본 브랜치: `main`
 - 작업 브랜치 생성 후 PR로 병합
 - 브랜치 이름 규칙:
-  - 기능: `feat/#<issue-number>/<short-name>`
+  - 기능: `feature/#<issue-number>/<short-name>`
   - 버그 수정: `fix/#<issue-number>/<short-name>`
   - 문서: `docs/#<issue-number>/<short-name>`
   - 리팩터링: `refactor/#<issue-number>/<short-name>`
+  - 코드 외 작업: `chore/#<issue-number>/<short-name>`
 
 예시:
 
-- `feat/#3/3d-gallery-filter`
+- `feature/#3/3d-gallery-filter`
 - `fix/#7/notion-embed-url`
 
 ## 2. 커밋 메시지 컨벤션
