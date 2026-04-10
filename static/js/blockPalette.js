@@ -7,6 +7,7 @@ export const BLOCK_PALETTE_ITEMS = [
   { type: 'image', label: '이미지', icon: '▣' },
   { type: 'container', label: '컨테이너', icon: '⊞' },
   { type: 'divider', label: '구분선', icon: '—' },
+  { type: 'page', label: '페이지', icon: '⊔' },
 ];
 
 /**
@@ -113,7 +114,7 @@ export function showBlockDeleteConfirm(wrapperEl, blockId, reloadDocument) {
     close();
     try {
       await apiDeleteBlock(blockId);
-      if (reloadDocument) reloadDocument();
+      if (reloadDocument) await reloadDocument();
     } catch (err) {
       console.error('블록 삭제 실패:', err);
     }

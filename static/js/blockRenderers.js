@@ -21,10 +21,12 @@ initFormattingToolbar();
  * knowing about the active document or load function.
  */
 export const callbacks = {
-  navigateTo: null,       // (documentId) => void
-  addBlock: null,         // (type, parentBlockId?) => Promise<void>
-  addBlockAfter: null,    // (type, afterBlockId, parentBlockId?) => Promise<void>
-  reloadDocument: null,   // () => void
+  navigateTo: null,         // (documentId) => void
+  addBlock: null,           // (type, parentBlockId?) => Promise<void>
+  addBlockAfter: null,      // (type, afterBlockId, parentBlockId?) => Promise<void>
+  reloadDocument: null,     // () => void
+  onPageBlockAdded: null,   // (childDoc) => void — update sidebar after page block creation
+  reloadSidebar: null,      // () => Promise<void> — full sidebar refresh
 };
 
 // ── Individual block creators ─────────────────────────────────────────────────
@@ -488,6 +490,7 @@ export function renderBlock(block, parentBlockId = null) {
   return wrapBlock(blockEl, block, parentBlockId, {
     addBlockAfter: callbacks.addBlockAfter,
     reloadDocument: callbacks.reloadDocument,
+    reloadSidebar: callbacks.reloadSidebar,
   });
 }
 

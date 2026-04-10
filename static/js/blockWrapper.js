@@ -15,7 +15,7 @@ let currentDropTarget = null;
  * @param {string|null} parentBlockId - Parent block id (null for top-level)
  * @param {object}      callbacks     - { addBlockAfter, reloadDocument }
  */
-export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter, reloadDocument } = {}) {
+export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter, reloadDocument, reloadSidebar } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'block-wrapper';
   wrapper.dataset.blockId = block.id;
@@ -47,7 +47,9 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
     sectionLabel.textContent = '타입 변경';
     moreMenu.appendChild(sectionLabel);
 
-    BLOCK_PALETTE_ITEMS.forEach(({ type, label, icon }) => {
+    // 'page' is excluded: changing an existing block to page is not supported
+    // (page blocks auto-create a child document on creation; type-change API rejects it).
+    BLOCK_PALETTE_ITEMS.filter((item) => item.type !== 'page').forEach(({ type, label, icon }) => {
       const changeBtn = document.createElement('button');
       changeBtn.type = 'button';
       changeBtn.className = 'block-change-type-btn';
@@ -121,7 +123,11 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     moreMenu.hidden = true;
-    showBlockDeleteConfirm(wrapper, block.id, reloadDocument);
+    // Page block deletion also requires a sidebar refresh (referenced doc promoted to root)
+    const afterDelete = (block.type === 'page' && reloadSidebar)
+      ? async () => { await reloadSidebar(); reloadDocument?.(); }
+      : reloadDocument;
+    showBlockDeleteConfirm(wrapper, block.id, afterDelete);
   });
 
   // ── Drag and Drop ─────────────────────────────────────────────────────────

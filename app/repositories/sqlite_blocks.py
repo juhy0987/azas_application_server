@@ -22,11 +22,31 @@ class SQLiteBlockRepository:
 
   # ── Documents ──────────────────────────────────────────────────────────────
 
-  def list_documents(self) -> list[dict[str, str]]:
+  def list_documents(self) -> list[dict]:
+    """Return all documents as a parent-child tree sorted by title.
+
+    Each root-level document has a ``children`` list; children are sorted
+    alphabetically and may themselves contain further children.
+    """
     rows = self._session.execute(
       select(DocumentRow).order_by(DocumentRow.title)
     ).scalars().all()
-    return [{"id": r.id, "title": r.title, "subtitle": r.subtitle} for r in rows]
+
+    all_docs: list[dict] = [
+      {"id": r.id, "title": r.title, "subtitle": r.subtitle, "parent_id": r.parent_id, "children": []}
+      for r in rows
+    ]
+    by_id = {d["id"]: d for d in all_docs}
+    roots: list[dict] = []
+
+    for doc in all_docs:
+      pid = doc["parent_id"]
+      if pid and pid in by_id:
+        by_id[pid]["children"].append(doc)
+      else:
+        roots.append(doc)
+
+    return roots
 
   def get_document(self, document_id: str) -> BlockDocument | None:
     doc_row = self._session.get(DocumentRow, document_id)
@@ -91,12 +111,54 @@ class SQLiteBlockRepository:
       blocks=build_nodes(None),
     )
 
-  def create_document(self) -> dict[str, str]:
+  def create_document(self) -> dict:
     doc_id = str(uuid.uuid4())
     title = "새 문서"
-    self._session.add(DocumentRow(id=doc_id, title=title, subtitle=""))
+    self._session.add(DocumentRow(id=doc_id, title=title, subtitle="", parent_id=None))
     self._session.commit()
-    return {"id": doc_id, "title": title, "subtitle": ""}
+    return {"id": doc_id, "title": title, "subtitle": "", "parent_id": None, "children": []}
+
+  def create_child_document(self, parent_id: str) -> dict | None:
+    """Create a new document as a direct child of *parent_id*.
+
+    Returns None if *parent_id* does not exist.
+    """
+    if self._session.get(DocumentRow, parent_id) is None:
+      return None
+    data = self._build_child_document_row(parent_id)
+    self._session.commit()
+    return data
+
+  def _build_child_document_row(self, parent_id: str) -> dict:
+    """Add a child DocumentRow to the session without committing.
+
+    Callers are responsible for the commit so that the operation can be
+    composed into a larger atomic transaction.
+    """
+    doc_id = str(uuid.uuid4())
+    title = "새 문서"
+    self._session.add(DocumentRow(id=doc_id, title=title, subtitle="", parent_id=parent_id))
+    return {"id": doc_id, "title": title, "subtitle": "", "parent_id": parent_id, "children": []}
+
+  def _is_descendant(self, ancestor_id: str, candidate_id: str) -> bool:
+    """Return True if *candidate_id* is *ancestor_id* or a descendant of it.
+
+    Guards against pre-existing cycles in the parent_id chain via a visited set
+    so the loop always terminates.
+    """
+    visited: set[str] = set()
+    current: str | None = candidate_id
+    while current is not None:
+      if current in visited:
+        break  # cycle detected — stop traversal
+      visited.add(current)
+      if current == ancestor_id:
+        return True
+      row = self._session.get(DocumentRow, current)
+      if row is None:
+        break
+      current = row.parent_id
+    return False
 
   def update_document_title(self, document_id: str, title: str) -> bool:
     doc_row = self._session.get(DocumentRow, document_id)
@@ -110,6 +172,12 @@ class SQLiteBlockRepository:
     doc_row = self._session.get(DocumentRow, document_id)
     if doc_row is None:
       return False
+    # Promote direct children to root so they are not orphaned
+    self._session.execute(
+      update(DocumentRow)
+      .where(DocumentRow.parent_id == document_id)
+      .values(parent_id=None)
+    )
     self._session.delete(doc_row)
     self._session.commit()
     return True
@@ -137,18 +205,6 @@ class SQLiteBlockRepository:
 
     Returns the created block data, or None if document not found or type is unsupported.
     """
-    match block_type:
-      case "text":
-        default_content: dict[str, Any] = {"text": ""}
-      case "image":
-        default_content = {"url": "", "caption": ""}
-      case "container":
-        default_content = {"title": "", "layout": "vertical"}
-      case "divider":
-        default_content = {}
-      case _:
-        return None
-
     if self._session.get(DocumentRow, document_id) is None:
       return None
 
@@ -161,6 +217,25 @@ class SQLiteBlockRepository:
       ).scalar_one_or_none()
       if parent_exists is None:
         return None
+
+    # ── Page block: auto-create a child document (single transaction) ────────
+    if block_type == "page":
+      # Use _build_child_document_row (no commit) so both the new document and
+      # the page block are committed together below, keeping the DB consistent.
+      child_doc = self._build_child_document_row(document_id)
+      default_content: dict[str, Any] = {"document_id": child_doc["id"]}
+    else:
+      match block_type:
+        case "text":
+          default_content = {"text": ""}
+        case "image":
+          default_content = {"url": "", "caption": ""}
+        case "container":
+          default_content = {"title": "", "layout": "vertical"}
+        case "divider":
+          default_content = {}
+        case _:
+          return None
 
     parent_filter = (
       BlockRow.parent_block_id.is_(None)
@@ -182,13 +257,33 @@ class SQLiteBlockRepository:
       content_json=json.dumps(default_content, ensure_ascii=False),
     ))
     self._session.commit()
-    return {"id": block_id, "type": block_type, **default_content}
+
+    result: dict[str, Any] = {"id": block_id, "type": block_type, **default_content}
+    if block_type == "page":
+      result["title"] = child_doc["title"]
+      result["child_document"] = child_doc
+    return result
 
   def delete_block(self, block_id: str) -> bool:
-    """Delete a block and all its descendants. Compacts sibling positions after deletion."""
+    """Delete a block and all its descendants. Compacts sibling positions after deletion.
+
+    When deleting a page block, the referenced document is promoted to root
+    (parent_id cleared) so it is not orphaned.
+    """
     block_row = self._session.get(BlockRow, block_id)
     if block_row is None:
       return False
+
+    # Promote referenced document if this is a page block
+    if block_row.type == "page":
+      content = json.loads(block_row.content_json)
+      ref_doc_id = content.get("document_id")
+      if ref_doc_id:
+        self._session.execute(
+          update(DocumentRow)
+          .where(DocumentRow.id == ref_doc_id)
+          .values(parent_id=None)
+        )
 
     document_id = block_row.document_id
     parent_block_id = block_row.parent_block_id

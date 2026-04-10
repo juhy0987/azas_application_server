@@ -23,8 +23,8 @@ class DocumentTitleUpdate(BaseModel):
 
 
 @router.get("")
-def list_documents(repo: SQLiteBlockRepository = Depends(get_repository)) -> list[dict[str, str]]:
-  """Return all available block documents."""
+def list_documents(repo: SQLiteBlockRepository = Depends(get_repository)) -> list[dict]:
+  """Return all available block documents as a parent-child tree."""
   return repo.list_documents()
 
 
@@ -41,7 +41,7 @@ def get_document(
 
 
 @router.post("", status_code=201)
-def create_document(repo: SQLiteBlockRepository = Depends(get_repository)) -> dict[str, str]:
+def create_document(repo: SQLiteBlockRepository = Depends(get_repository)) -> dict:
   """Create a new empty document and return its info."""
   return repo.create_document()
 
@@ -59,7 +59,7 @@ def update_document_title(
 
 
 class BlockCreate(BaseModel):
-  type: Literal["text", "image", "container", "divider"]
+  type: Literal["text", "image", "container", "divider", "page"]
   parent_block_id: str | None = None
 
 
@@ -69,7 +69,11 @@ def create_block(
   body: BlockCreate,
   repo: SQLiteBlockRepository = Depends(get_repository),
 ) -> dict:
-  """Append a new block to a document."""
+  """Append a new block to a document.
+
+  For ``type=page`` a new child document is automatically created and returned
+  inside the ``child_document`` field of the response.
+  """
   result = repo.create_block(document_id, body.type, body.parent_block_id)
   if result is None:
     raise HTTPException(status_code=404, detail="Document not found")

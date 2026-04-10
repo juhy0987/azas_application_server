@@ -19,6 +19,45 @@ async function initGallery() {
 
   let activeDocId = null;
 
+  // ── Sidebar helpers ───────────────────────────────────────────────────────
+  /**
+   * Full sidebar re-render: re-fetches document tree and rebuilds the list.
+   * Preserves active highlight for the currently open document.
+   */
+  async function reloadSidebar() {
+    const docs = await fetchDocuments();
+    list.innerHTML = '';
+    docs.forEach((doc) => addDocumentItem(list, doc, handlers, 0));
+    if (activeDocId) {
+      const activeItem = list.querySelector(`li[data-id="${activeDocId}"]`);
+      if (activeItem) setActiveItem(list, activeItem);
+    }
+  }
+
+  /**
+   * Add a newly created child document to the sidebar under its parent item
+   * without a full reload. The parent's toggle is expanded automatically.
+   */
+  function addChildToSidebar(childDoc) {
+    const parentItem = list.querySelector(`li[data-id="${childDoc.parent_id}"]`);
+    if (!parentItem) return;
+
+    const parentDepth = parseInt(parentItem.dataset.depth ?? '0', 10);
+    const childrenList = parentItem.querySelector(':scope > .document-children');
+    const toggleBtn = parentItem.querySelector(':scope > .document-row > .document-toggle-btn');
+
+    if (!childrenList || !toggleBtn) return;
+
+    toggleBtn.classList.add('has-children', 'is-expanded');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+    // Restore focusability — button was aria-hidden / tabIndex=-1 when childless
+    toggleBtn.removeAttribute('aria-hidden');
+    toggleBtn.tabIndex = 0;
+    childrenList.hidden = false;
+
+    addDocumentItem(childrenList, childDoc, handlers, parentDepth + 1);
+  }
+
   // ── Wire up renderer callbacks ────────────────────────────────────────────
   callbacks.navigateTo = (documentId) => {
     const targetItem = list.querySelector(`li[data-id="${documentId}"]`);
@@ -33,6 +72,12 @@ async function initGallery() {
     if (activeDocId) loadDocument(activeDocId);
   };
 
+  callbacks.reloadSidebar = reloadSidebar;
+
+  callbacks.onPageBlockAdded = (childDoc) => {
+    addChildToSidebar(childDoc);
+  };
+
   // ── Document loader ───────────────────────────────────────────────────────
   async function loadDocument(documentId, { focusBlockId = null } = {}) {
     activeDocId = documentId;
@@ -43,16 +88,17 @@ async function initGallery() {
       if (afterWrapper) {
         const newWrapper = renderBlock(newBlock, parentBlockId);
         afterWrapper.after(newWrapper);
-        // 서버 순서도 DOM과 일치시킴: 삽입된 위치의 다음 형제 앞으로 이동
         const nextWrapper = newWrapper.nextElementSibling;
         if (nextWrapper?.dataset?.blockId) {
           await apiMoveBlock(newBlock.id, nextWrapper.dataset.blockId);
         }
         focusBlock(newWrapper);
       }
+      if (newBlock.child_document && callbacks.onPageBlockAdded) {
+        callbacks.onPageBlockAdded(newBlock.child_document);
+      }
     };
 
-    // Also keep a plain addBlock for appending to a container or root
     const addBlock = async (type, parentBlockId = null) => {
       const newBlock = await apiCreateBlock(activeDocId, type, parentBlockId);
       const containerEl = parentBlockId
@@ -63,14 +109,15 @@ async function initGallery() {
         containerEl.appendChild(newWrapper);
         focusBlock(newWrapper);
       }
+      if (newBlock.child_document && callbacks.onPageBlockAdded) {
+        callbacks.onPageBlockAdded(newBlock.child_document);
+      }
     };
-    // Expose addBlock via callbacks so blockPalette's fallback path works
     callbacks.addBlock = addBlock;
 
     try {
       const payload = await fetchDocument(documentId);
 
-      // Ensure the last root-level block is always a text block
       const rootBlocks = payload.blocks;
       const lastBlock = rootBlocks[rootBlocks.length - 1];
       if (!lastBlock || lastBlock.type !== 'text') {
@@ -108,6 +155,7 @@ async function initGallery() {
     root.replaceChildren(p);
   }
 
+  // ── Shared document action handlers ──────────────────────────────────────
   const handlers = {
     onSelect(docId) {
       loadDocument(docId);
@@ -139,20 +187,19 @@ async function initGallery() {
     document.getElementById('sidebar-panel'),
   );
 
-  // Close document menus and block more-menus when clicking outside
   document.addEventListener('click', () => {
     closeAllMenus(list);
     document.querySelectorAll('.block-more-menu').forEach((m) => (m.hidden = true));
   });
 
-  // ── Load initial document list ────────────────────────────────────────────
+  // ── Load initial document tree ────────────────────────────────────────────
   try {
     const documents = await fetchDocuments();
 
     if (documents.length === 0) {
       showEmptyState();
     } else {
-      documents.forEach((doc) => addDocumentItem(list, doc, handlers));
+      documents.forEach((doc) => addDocumentItem(list, doc, handlers, 0));
       const firstItem = list.querySelector('li');
       setActiveItem(list, firstItem);
       await loadDocument(documents[0].id);
@@ -168,15 +215,13 @@ async function initGallery() {
   newDocBtn.addEventListener('click', async () => {
     try {
       const newDoc = await apiCreateDocument();
-      const item = addDocumentItem(list, newDoc, handlers);
+      const item = addDocumentItem(list, newDoc, handlers, 0);
       closeAllMenus(list);
       setActiveItem(list, item);
-      // Show blank page immediately
       document.getElementById('page-title').textContent = newDoc.title;
       document.getElementById('page-subtitle').textContent = '';
       root.innerHTML = '';
       activeDocId = newDoc.id;
-      // Enter inline title edit mode
       enterInlineEdit(item, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId));
     } catch (err) {
       console.error('문서 생성 실패:', err);

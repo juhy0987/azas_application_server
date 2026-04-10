@@ -8,7 +8,7 @@ export function closeAllMenus(list) {
 
 export function setActiveItem(list, targetItem) {
   list.querySelectorAll('.document-item').forEach((btn) => btn.classList.remove('is-active'));
-  const btn = targetItem.querySelector('.document-item');
+  const btn = targetItem.querySelector(':scope > .document-row > .document-item');
   if (btn) btn.classList.add('is-active');
 }
 
@@ -17,12 +17,12 @@ export function setActiveItem(list, targetItem) {
  * title editing. Commits on Enter or blur; cancels (keeps original) on Escape.
  */
 export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
-  const existingBtn = listItem.querySelector('.document-item');
-  const menuBtn = listItem.querySelector('.document-menu-btn');
+  const existingBtn = listItem.querySelector(':scope > .document-row > .document-item');
+  const menuBtn = listItem.querySelector(':scope > .document-row > .document-menu-btn');
 
   const input = document.createElement('input');
   input.type = 'text';
-  input.setAttribute('size', '1'); // prevent browser default intrinsic width
+  input.setAttribute('size', '1');
   input.className = 'document-title-input';
   input.value = initialTitle;
   existingBtn.replaceWith(input);
@@ -58,7 +58,7 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
       apiUpdateTitle(docId, newTitle).catch(console.error);
       restoreButton(newTitle);
     } else if (e.key === 'Escape') {
-      restoreButton(initialTitle); // cancel: no API call, restore original title
+      restoreButton(initialTitle);
     }
   });
 
@@ -70,16 +70,43 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
 }
 
 /**
- * Build and append a single document list item.
- * Returns the <li> element.
+ * Build and append a single document list item (and its children recursively).
+ *
+ * @param {HTMLElement} list        - Parent <ul> to append into
+ * @param {object}      docInfo     - Document data including .children[]
+ * @param {object}      handlers    - { onSelect, onDelete }
+ * @param {number}      depth       - Nesting depth (0 = root)
+ * @returns {HTMLLIElement}
  */
-export function addDocumentItem(list, docInfo, { onSelect, onDelete }) {
+export function addDocumentItem(list, docInfo, handlers, depth = 0) {
+  const { onSelect, onDelete } = handlers;
+
   const item = document.createElement('li');
   item.dataset.id = docInfo.id;
+  item.dataset.depth = String(depth);
 
   const row = document.createElement('div');
   row.className = 'document-row';
+  row.style.paddingLeft = depth > 0 ? `${depth * 14}px` : '0';
 
+  // ── Toggle button (> chevron) ─────────────────────────────────────────────
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.className = 'document-toggle-btn';
+  toggleBtn.setAttribute('aria-label', '하위 페이지 펼치기/접기');
+  toggleBtn.setAttribute('aria-expanded', 'false');
+
+  const hasChildren = !!(docInfo.children && docInfo.children.length > 0);
+  if (hasChildren) {
+    toggleBtn.classList.add('has-children');
+  } else {
+    // No children: keep button in DOM for layout stability but remove from
+    // tab order and hide from assistive technology.
+    toggleBtn.tabIndex = -1;
+    toggleBtn.setAttribute('aria-hidden', 'true');
+  }
+
+  // ── Document select button ────────────────────────────────────────────────
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'document-item';
@@ -90,6 +117,7 @@ export function addDocumentItem(list, docInfo, { onSelect, onDelete }) {
     onSelect(docInfo.id);
   });
 
+  // ── More (⋯) menu button ──────────────────────────────────────────────────
   const menuBtn = document.createElement('button');
   menuBtn.type = 'button';
   menuBtn.className = 'document-menu-btn';
@@ -118,11 +146,34 @@ export function addDocumentItem(list, docInfo, { onSelect, onDelete }) {
   });
 
   menu.appendChild(deleteBtn);
+  row.appendChild(toggleBtn);
   row.appendChild(btn);
   row.appendChild(menuBtn);
   row.appendChild(menu);
   item.appendChild(row);
-  list.appendChild(item);
 
+  // ── Children list ─────────────────────────────────────────────────────────
+  const childrenList = document.createElement('ul');
+  childrenList.className = 'document-children';
+  childrenList.hidden = true;
+  item.appendChild(childrenList);
+
+  // Render existing children (collapsed by default)
+  if (docInfo.children && docInfo.children.length > 0) {
+    docInfo.children.forEach((child) =>
+      addDocumentItem(childrenList, child, handlers, depth + 1)
+    );
+  }
+
+  // ── Toggle expand/collapse ────────────────────────────────────────────────
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willExpand = !toggleBtn.classList.contains('is-expanded');
+    toggleBtn.classList.toggle('is-expanded', willExpand);
+    toggleBtn.setAttribute('aria-expanded', String(willExpand));
+    childrenList.hidden = !willExpand;
+  });
+
+  list.appendChild(item);
   return item;
 }
