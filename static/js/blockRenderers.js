@@ -283,23 +283,6 @@ function createImageBlock(block) {
   return node;
 }
 
-/**
- * Create a "내용 추가" button for container-type blocks.
- * Clicking opens the block palette and adds a child block via callbacks.addBlock.
- */
-function createAddContentBtn(blockId) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'block-add-content-btn';
-  btn.textContent = '+ 내용 추가';
-  btn.addEventListener('mousedown', (e) => e.preventDefault());
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openBlockPalette(btn, blockId, null, callbacks.addBlock);
-  });
-  return btn;
-}
-
 function createContainerBlock(block) {
   const template = document.getElementById('container-block-template');
   const node = template.content.firstElementChild.cloneNode(true);
@@ -321,7 +304,6 @@ function createContainerBlock(block) {
     childrenRoot.appendChild(renderBlock(child, block.id));
   });
 
-  node.appendChild(createAddContentBtn(block.id));
 
   return node;
 }
@@ -345,7 +327,6 @@ function createToggleBlock(block) {
     childrenRoot.appendChild(renderBlock(child, block.id));
   });
 
-  node.appendChild(createAddContentBtn(block.id));
 
   return node;
 }
@@ -420,7 +401,6 @@ function createQuoteBlock(block) {
     childrenRoot.appendChild(renderBlock(child, block.id));
   });
 
-  node.appendChild(createAddContentBtn(block.id));
 
   return node;
 }
@@ -440,8 +420,6 @@ function createCalloutBlock(block) {
   (block.children || []).forEach((child) => {
     childrenRoot.appendChild(renderBlock(child, block.id));
   });
-
-  node.querySelector('.callout-body').appendChild(createAddContentBtn(block.id));
 
   return node;
 }
