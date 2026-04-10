@@ -8,7 +8,16 @@ from pydantic import TypeAdapter
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
-from app.models.blocks import Block, BlockDocument, ContainerBlock, DividerBlock, PageBlock
+from app.models.blocks import (
+  Block,
+  BlockDocument,
+  CalloutBlock,
+  ContainerBlock,
+  DividerBlock,
+  PageBlock,
+  QuoteBlock,
+  ToggleBlock,
+)
 from app.models.orm import BlockRow, DocumentRow
 
 
@@ -90,6 +99,12 @@ class SQLiteBlockRepository:
       for item in children_by_parent.get(parent_id, []):
         if item["type"] == "container":
           nodes.append(ContainerBlock.model_validate({**item, "children": build_nodes(item["id"])}))
+        elif item["type"] == "toggle":
+          nodes.append(ToggleBlock.model_validate({**item, "children": build_nodes(item["id"])}))
+        elif item["type"] == "quote":
+          nodes.append(QuoteBlock.model_validate({**item, "children": build_nodes(item["id"])}))
+        elif item["type"] == "callout":
+          nodes.append(CalloutBlock.model_validate({**item, "children": build_nodes(item["id"])}))
         elif item["type"] == "heading":
           # heading은 TextBlock으로 통합 — 기존 DB 데이터 하위 호환
           nodes.append(self._block_adapter.validate_python({**item, "type": "text"}))
@@ -232,6 +247,14 @@ class SQLiteBlockRepository:
           default_content = {"url": "", "caption": ""}
         case "container":
           default_content = {"title": "", "layout": "vertical"}
+        case "toggle":
+          default_content = {"title": "", "is_open": False}
+        case "quote":
+          default_content = {"text": ""}
+        case "code":
+          default_content = {"code": "", "language": "plain"}
+        case "callout":
+          default_content = {"text": "", "emoji": "💡", "color": "yellow"}
         case "divider":
           default_content = {}
         case _:
@@ -334,6 +357,14 @@ class SQLiteBlockRepository:
         default_content = {"url": "", "caption": ""}
       case "container":
         default_content = {"title": "", "layout": "vertical"}
+      case "toggle":
+        default_content = {"title": "", "is_open": False}
+      case "quote":
+        default_content = {"text": ""}
+      case "code":
+        default_content = {"code": "", "language": "plain"}
+      case "callout":
+        default_content = {"text": "", "emoji": "💡", "color": "yellow"}
       case "divider":
         default_content = {}
       case _:
