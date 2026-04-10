@@ -14,6 +14,7 @@ class DocumentRow(Base):
   id: Mapped[str] = mapped_column(String, primary_key=True)
   title: Mapped[str] = mapped_column(String, nullable=False)
   subtitle: Mapped[str] = mapped_column(String, nullable=False, default="")
+  parent_id: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
 
   blocks: Mapped[list[BlockRow]] = relationship(
     back_populates="document",

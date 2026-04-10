@@ -9,10 +9,22 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from sqlalchemy import text
+
 from app.models.orm import Base
 
 _BASE_DIR = Path(__file__).resolve().parent.parent
 _DB_FILE = _BASE_DIR / "data" / "blocks.sqlite3"
+
+
+def _migrate(engine: Engine) -> None:
+  """Run additive schema migrations that create_all cannot handle."""
+  with engine.connect() as conn:
+    try:
+      conn.execute(text("ALTER TABLE documents ADD COLUMN parent_id TEXT"))
+      conn.commit()
+    except Exception:
+      pass  # column already exists
 
 
 @functools.cache
@@ -24,6 +36,7 @@ def _get_engine() -> Engine:
     connect_args={"check_same_thread": False},
   )
   Base.metadata.create_all(engine)
+  _migrate(engine)
   from app.repositories.sqlite_blocks import SQLiteBlockRepository
   with Session(engine) as session:
     SQLiteBlockRepository(session)._seed_if_empty()
