@@ -26,3 +26,36 @@
 <template id="divider-block-template">
   <hr class="notion-block notion-divider" />
 </template>
+
+<template id="toggle-block-template">
+  <details class="notion-block notion-toggle">
+    <summary class="toggle-summary">
+      <span class="toggle-title"></span>
+    </summary>
+    <div class="toggle-children"></div>
+  </details>
+</template>
+
+<template id="quote-block-template">
+  <blockquote class="notion-block notion-quote">
+    <p class="quote-text"></p>
+    <div class="quote-children"></div>
+  </blockquote>
+</template>
+
+<template id="code-block-template">
+  <div class="notion-block notion-code">
+    <div class="code-header">
+      <select class="code-language-select"></select>
+      <button type="button" class="code-copy-btn">복사</button>
+    </div>
+    <pre class="code-body"><code class="code-content" spellcheck="false"></code></pre>
+  </div>
+</template>
+
+<template id="callout-block-template">
+  <div class="notion-block notion-callout">
+    <span class="callout-emoji"></span>
+    <p class="callout-text"></p>
+  </div>
+</template>
