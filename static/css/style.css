@@ -311,6 +311,13 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   background: var(--paper-deep);
 }
 
+.document-toggle-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
 .document-toggle-btn.is-expanded::before {
   transform: rotate(90deg);
 }

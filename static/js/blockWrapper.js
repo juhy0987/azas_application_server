@@ -47,7 +47,9 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
     sectionLabel.textContent = '타입 변경';
     moreMenu.appendChild(sectionLabel);
 
-    BLOCK_PALETTE_ITEMS.forEach(({ type, label, icon }) => {
+    // 'page' is excluded: changing an existing block to page is not supported
+    // (page blocks auto-create a child document on creation; type-change API rejects it).
+    BLOCK_PALETTE_ITEMS.filter((item) => item.type !== 'page').forEach(({ type, label, icon }) => {
       const changeBtn = document.createElement('button');
       changeBtn.type = 'button';
       changeBtn.className = 'block-change-type-btn';

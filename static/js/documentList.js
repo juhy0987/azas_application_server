@@ -95,10 +95,15 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
   toggleBtn.className = 'document-toggle-btn';
   toggleBtn.setAttribute('aria-label', '하위 페이지 펼치기/접기');
   toggleBtn.setAttribute('aria-expanded', 'false');
-  // Visibility: always present for layout stability; visually shown only when
-  // there are children or on hover (via CSS).
-  if (docInfo.children && docInfo.children.length > 0) {
+
+  const hasChildren = !!(docInfo.children && docInfo.children.length > 0);
+  if (hasChildren) {
     toggleBtn.classList.add('has-children');
+  } else {
+    // No children: keep button in DOM for layout stability but remove from
+    // tab order and hide from assistive technology.
+    toggleBtn.tabIndex = -1;
+    toggleBtn.setAttribute('aria-hidden', 'true');
   }
 
   // ── Document select button ────────────────────────────────────────────────

@@ -114,7 +114,7 @@ export function showBlockDeleteConfirm(wrapperEl, blockId, reloadDocument) {
     close();
     try {
       await apiDeleteBlock(blockId);
-      if (reloadDocument) reloadDocument();
+      if (reloadDocument) await reloadDocument();
     } catch (err) {
       console.error('블록 삭제 실패:', err);
     }

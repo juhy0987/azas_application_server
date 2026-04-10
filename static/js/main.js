@@ -50,6 +50,9 @@ async function initGallery() {
 
     toggleBtn.classList.add('has-children', 'is-expanded');
     toggleBtn.setAttribute('aria-expanded', 'true');
+    // Restore focusability — button was aria-hidden / tabIndex=-1 when childless
+    toggleBtn.removeAttribute('aria-hidden');
+    toggleBtn.tabIndex = 0;
     childrenList.hidden = false;
 
     addDocumentItem(childrenList, childDoc, handlers, parentDepth + 1);
