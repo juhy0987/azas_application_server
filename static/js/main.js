@@ -248,6 +248,9 @@ async function initGallery() {
         console.error('문서 삭제 실패:', err);
       }
     },
+    onRename(docId, newTitle) {
+      if (callbacks.onTitleChanged) callbacks.onTitleChanged(docId, newTitle);
+    },
   };
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
@@ -291,7 +294,9 @@ async function initGallery() {
       document.getElementById('page-subtitle').textContent = '';
       root.innerHTML = '';
       activeDocId = newDoc.id;
-      enterInlineEdit(item, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId));
+      enterInlineEdit(item, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId), (docId, newTitle) => {
+        if (callbacks.onTitleChanged) callbacks.onTitleChanged(docId, newTitle);
+      });
     } catch (err) {
       console.error('문서 생성 실패:', err);
     }

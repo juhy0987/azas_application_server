@@ -16,7 +16,7 @@ export function setActiveItem(list, targetItem) {
  * Replace the document-item button inside listItem with an <input> for inline
  * title editing. Commits on Enter or blur; cancels (keeps original) on Escape.
  */
-export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
+export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, onTitleSaved = null) {
   const existingBtn = listItem.querySelector(':scope > .document-row > .document-item');
   const menuBtn = listItem.querySelector(':scope > .document-row > .document-menu-btn');
 
@@ -51,11 +51,17 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
     if (menuBtn) menuBtn.hidden = false;
   }
 
+  function commitTitle(newTitle) {
+    apiUpdateTitle(docId, newTitle)
+      .then(() => { if (onTitleSaved) onTitleSaved(docId, newTitle); })
+      .catch(console.error);
+  }
+
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const newTitle = input.value.trim() || '새 문서';
-      apiUpdateTitle(docId, newTitle).catch(console.error);
+      commitTitle(newTitle);
       restoreButton(newTitle);
     } else if (e.key === 'Escape') {
       restoreButton(initialTitle);
@@ -64,7 +70,7 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
 
   input.addEventListener('blur', () => {
     const newTitle = input.value.trim() || '새 문서';
-    if (!exited) apiUpdateTitle(docId, newTitle).catch(console.error);
+    if (!exited) commitTitle(newTitle);
     restoreButton(newTitle);
   });
 }
@@ -79,7 +85,7 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
  * @returns {HTMLLIElement}
  */
 export function addDocumentItem(list, docInfo, handlers, depth = 0) {
-  const { onSelect, onDelete } = handlers;
+  const { onSelect, onDelete, onRename } = handlers;
 
   const item = document.createElement('li');
   item.dataset.id = docInfo.id;
@@ -128,6 +134,19 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
   menu.className = 'document-menu';
   menu.hidden = true;
 
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'document-menu-rename';
+  renameBtn.textContent = '이름 바꾸기';
+  renameBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.hidden = true;
+    const currentTitle = btn.textContent;
+    enterInlineEdit(item, docInfo.id, currentTitle, list, (docId) => onSelect(docId), (docId, newTitle) => {
+      if (onRename) onRename(docId, newTitle);
+    });
+  });
+
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
   deleteBtn.className = 'document-menu-delete';
@@ -145,6 +164,7 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
     menu.hidden = !wasHidden;
   });
 
+  menu.appendChild(renameBtn);
   menu.appendChild(deleteBtn);
   row.appendChild(toggleBtn);
   row.appendChild(btn);
