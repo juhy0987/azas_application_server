@@ -31,7 +31,16 @@ class TestCreateContainerBlocks:
     doc = repo.create_document()
     block = repo.create_block(doc["id"], "toggle")
     assert block["title"] == ""
-    assert block["is_open"] is False
+    assert block["is_open"] is True  # default open so user can type immediately
+
+  def test_container_types_include_one_child_on_create(self, repo):
+    """All container-type blocks are created with exactly one auto text child."""
+    doc = repo.create_document()
+    for block_type in ("container", "toggle", "quote", "callout"):
+      block = repo.create_block(doc["id"], block_type)
+      assert "children" in block, f"{block_type} missing children in response"
+      assert len(block["children"]) == 1
+      assert block["children"][0]["type"] == "text"
 
   def test_code_defaults(self, repo):
     doc = repo.create_document()
@@ -97,7 +106,7 @@ class TestToggleChildNesting:
     fetched = repo.get_document(doc["id"])
     toggle = fetched.blocks[0]
     assert toggle.type == "toggle"
-    assert len(toggle.children) == 2
+    assert len(toggle.children) == 3  # 1 auto-created + 2 manually added
 
   def test_quote_children_loaded(self, repo):
     doc = repo.create_document()
@@ -107,7 +116,7 @@ class TestToggleChildNesting:
     fetched = repo.get_document(doc["id"])
     quote = fetched.blocks[0]
     assert quote.type == "quote"
-    assert len(quote.children) == 1
+    assert len(quote.children) == 2  # 1 auto-created + 1 manually added
 
   def test_callout_children_loaded(self, repo):
     doc = repo.create_document()
@@ -117,7 +126,7 @@ class TestToggleChildNesting:
     fetched = repo.get_document(doc["id"])
     callout = fetched.blocks[0]
     assert callout.type == "callout"
-    assert len(callout.children) == 1
+    assert len(callout.children) == 2  # 1 auto-created + 1 manually added
 
   def test_code_block_has_no_children_field(self, repo):
     from app.models.blocks import CodeBlock
@@ -167,12 +176,73 @@ class TestDeleteContainerBlocks:
   def test_delete_toggle_removes_children(self, repo):
     doc = repo.create_document()
     parent = repo.create_block(doc["id"], "toggle")
+    # toggle already has 1 auto-created child; add 2 more
     repo.create_block(doc["id"], "text", parent_block_id=parent["id"])
     repo.create_block(doc["id"], "text", parent_block_id=parent["id"])
 
     assert repo.delete_block(parent["id"])
     fetched = repo.get_document(doc["id"])
     assert len(fetched.blocks) == 0
+
+  def test_deleting_last_child_cascades_container_delete(self, repo):
+    """When the last child of a container is deleted, the container is also deleted."""
+    doc = repo.create_document()
+    parent = repo.create_block(doc["id"], "toggle")
+    # Only the 1 auto-created child exists
+    auto_child_id = parent["children"][0]["id"]
+
+    repo.delete_block(auto_child_id)
+
+    fetched = repo.get_document(doc["id"])
+    assert len(fetched.blocks) == 0  # container cascaded away
+
+  def test_cascade_stops_when_siblings_remain(self, repo):
+    """Container is kept alive as long as at least one child remains."""
+    doc = repo.create_document()
+    parent = repo.create_block(doc["id"], "toggle")
+    extra = repo.create_block(doc["id"], "text", parent_block_id=parent["id"])
+
+    # Delete the extra child — auto-created one still remains
+    repo.delete_block(extra["id"])
+
+    fetched = repo.get_document(doc["id"])
+    assert len(fetched.blocks) == 1
+    assert fetched.blocks[0].type == "toggle"
+    assert len(fetched.blocks[0].children) == 1
+
+  def test_cascade_delete_propagates_through_nested_containers(self, repo):
+    """Cascade deletion propagates upward through nested containers."""
+    doc = repo.create_document()
+    outer = repo.create_block(doc["id"], "toggle")
+    outer_auto_child_id = outer["children"][0]["id"]
+
+    # Replace the outer's auto-child with an inner container
+    repo.delete_block(outer_auto_child_id)
+    # Outer is now empty and was cascade-deleted. Verify and recreate scenario:
+    # Actually this would cascade-delete outer too. Let's test differently:
+    # Create outer, add an inner container as explicit child, then outer auto child still exists.
+    doc2 = repo.create_document()
+    outer2 = repo.create_block(doc2["id"], "toggle")
+    inner = repo.create_block(doc2["id"], "quote", parent_block_id=outer2["id"])
+    inner_auto_child_id = inner["children"][0]["id"]
+
+    # outer2 has: [auto-text, inner-quote]
+    # inner-quote has: [auto-text]
+    # Delete the outer2's auto text child — outer2 still has inner-quote
+    outer2_auto_child_id = outer2["children"][0]["id"]
+    repo.delete_block(outer2_auto_child_id)
+
+    fetched = repo.get_document(doc2["id"])
+    assert len(fetched.blocks) == 1
+    assert fetched.blocks[0].type == "toggle"
+    # inner quote still alive with its auto child
+    assert len(fetched.blocks[0].children) == 1
+    assert fetched.blocks[0].children[0].type == "quote"
+
+    # Now delete inner-quote's only child — inner-quote cascades, outer2 cascades
+    repo.delete_block(inner_auto_child_id)
+    fetched2 = repo.get_document(doc2["id"])
+    assert len(fetched2.blocks) == 0
 
 
 # ── API-level tests ───────────────────────────────────────────────────────────
@@ -244,4 +314,4 @@ class TestContainerBlocksAPI:
     fetched = client.get(f"/api/documents/{doc['id']}").json()
     toggle = fetched["blocks"][0]
     assert toggle["type"] == "toggle"
-    assert len(toggle["children"]) == 1
+    assert len(toggle["children"]) == 2  # 1 auto-created + 1 manually added
