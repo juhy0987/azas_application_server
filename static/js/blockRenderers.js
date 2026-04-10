@@ -325,7 +325,13 @@ function createToggleBlock(block) {
   }
 
   applyOpen(isOpen);
-  titleEl.textContent = block.title || '';
+
+  // Render formatted HTML when available, fall back to plain text
+  if (block.formatted_title) {
+    titleEl.innerHTML = sanitizeHtml(block.formatted_title);
+  } else {
+    titleEl.textContent = block.title || '';
+  }
 
   // ── Arrow button: only way to open/close ────────────────────────────────
   arrowBtn.addEventListener('click', (e) => {
@@ -334,8 +340,71 @@ function createToggleBlock(block) {
     apiPatchBlock(block.id, { is_open: isOpen }).catch(console.error);
   });
 
-  // ── Title editing ────────────────────────────────────────────────────────
-  enableContentEditable(titleEl, block.id, 'title', node);
+  // ── Title editing (mirrors text block: formatting toolbar + shortcuts) ───
+  let originalHtml = titleEl.innerHTML;
+  let originalText = titleEl.textContent;
+  let titleEscaped = false;
+
+  titleEl.addEventListener('click', (e) => {
+    if (e.target === arrowBtn) return;
+    if (titleEl.contentEditable === 'true') return;
+    originalHtml = titleEl.innerHTML;
+    originalText = titleEl.textContent;
+    titleEscaped = false;
+    titleEl.contentEditable = 'true';
+    titleEl.classList.add('is-editing');
+    setEditingNode(titleEl);
+    titleEl.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(titleEl);
+    range.collapse(false);
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+  });
+
+  titleEl.addEventListener('blur', (e) => {
+    if (isInsideToolbar(e.relatedTarget)) return;
+    if (titleEl.contentEditable !== 'true') return;
+    titleEl.contentEditable = 'false';
+    titleEl.classList.remove('is-editing');
+    clearEditingNode();
+    if (titleEscaped) { titleEscaped = false; return; }
+    const newText = titleEl.textContent.trim();
+    const newHtml = sanitizeHtml(titleEl.innerHTML);
+    const patch = {};
+    if (newText !== originalText) patch.title = newText;
+    if (newHtml !== sanitizeHtml(originalHtml)) patch.formatted_title = newHtml;
+    if (Object.keys(patch).length) {
+      originalText = newText;
+      originalHtml = titleEl.innerHTML;
+      apiPatchBlock(block.id, patch).catch(console.error);
+    }
+  });
+
+  titleEl.addEventListener('keydown', (e) => {
+    if (titleEl.contentEditable !== 'true') return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      titleEscaped = true;
+      titleEl.innerHTML = originalHtml;
+      titleEl.contentEditable = 'false';
+      titleEl.classList.remove('is-editing');
+      clearEditingNode();
+      return;
+    }
+    // Enter: stop editing (title is single-line)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      titleEl.blur();
+      return;
+    }
+    // Formatting shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'b') { e.preventDefault(); document.execCommand('bold', false); }
+      else if (e.key === 'i') { e.preventDefault(); document.execCommand('italic', false); }
+      else if (e.key === 'u') { e.preventDefault(); document.execCommand('underline', false); }
+    }
+  });
 
   block.children.forEach((child) => {
     childrenRoot.appendChild(renderBlock(child, block.id));
