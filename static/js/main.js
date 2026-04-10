@@ -4,7 +4,6 @@ import {
   fetchDocuments,
   fetchDocument,
   apiCreateDocument,
-  apiCreateChildDocument,
   apiDeleteDocument,
   apiCreateBlock,
   apiMoveBlock,
@@ -20,6 +19,42 @@ async function initGallery() {
 
   let activeDocId = null;
 
+  // ── Sidebar helpers ───────────────────────────────────────────────────────
+  /**
+   * Full sidebar re-render: re-fetches document tree and rebuilds the list.
+   * Preserves active highlight for the currently open document.
+   */
+  async function reloadSidebar() {
+    const docs = await fetchDocuments();
+    list.innerHTML = '';
+    docs.forEach((doc) => addDocumentItem(list, doc, handlers, 0));
+    if (activeDocId) {
+      const activeItem = list.querySelector(`li[data-id="${activeDocId}"]`);
+      if (activeItem) setActiveItem(list, activeItem);
+    }
+  }
+
+  /**
+   * Add a newly created child document to the sidebar under its parent item
+   * without a full reload. The parent's toggle is expanded automatically.
+   */
+  function addChildToSidebar(childDoc) {
+    const parentItem = list.querySelector(`li[data-id="${childDoc.parent_id}"]`);
+    if (!parentItem) return;
+
+    const parentDepth = parseInt(parentItem.dataset.depth ?? '0', 10);
+    const childrenList = parentItem.querySelector(':scope > .document-children');
+    const toggleBtn = parentItem.querySelector(':scope > .document-row > .document-toggle-btn');
+
+    if (!childrenList || !toggleBtn) return;
+
+    toggleBtn.classList.add('has-children', 'is-expanded');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+    childrenList.hidden = false;
+
+    addDocumentItem(childrenList, childDoc, handlers, parentDepth + 1);
+  }
+
   // ── Wire up renderer callbacks ────────────────────────────────────────────
   callbacks.navigateTo = (documentId) => {
     const targetItem = list.querySelector(`li[data-id="${documentId}"]`);
@@ -32,6 +67,12 @@ async function initGallery() {
 
   callbacks.reloadDocument = () => {
     if (activeDocId) loadDocument(activeDocId);
+  };
+
+  callbacks.reloadSidebar = reloadSidebar;
+
+  callbacks.onPageBlockAdded = (childDoc) => {
+    addChildToSidebar(childDoc);
   };
 
   // ── Document loader ───────────────────────────────────────────────────────
@@ -50,6 +91,9 @@ async function initGallery() {
         }
         focusBlock(newWrapper);
       }
+      if (newBlock.child_document && callbacks.onPageBlockAdded) {
+        callbacks.onPageBlockAdded(newBlock.child_document);
+      }
     };
 
     const addBlock = async (type, parentBlockId = null) => {
@@ -61,6 +105,9 @@ async function initGallery() {
         const newWrapper = renderBlock(newBlock, parentBlockId);
         containerEl.appendChild(newWrapper);
         focusBlock(newWrapper);
+      }
+      if (newBlock.child_document && callbacks.onPageBlockAdded) {
+        callbacks.onPageBlockAdded(newBlock.child_document);
       }
     };
     callbacks.addBlock = addBlock;
@@ -129,30 +176,6 @@ async function initGallery() {
         console.error('문서 삭제 실패:', err);
       }
     },
-    async onAddChild(parentId, parentItem, childrenList, childDepth) {
-      try {
-        const newDoc = await apiCreateChildDocument(parentId);
-
-        // Mark toggle button as having children and expand
-        const toggleBtn = parentItem.querySelector(':scope > .document-row > .document-toggle-btn');
-        if (toggleBtn) {
-          toggleBtn.classList.add('has-children', 'is-expanded');
-          toggleBtn.setAttribute('aria-expanded', 'true');
-        }
-        childrenList.hidden = false;
-
-        const childItem = addDocumentItem(childrenList, newDoc, handlers, childDepth);
-        closeAllMenus(list);
-        setActiveItem(list, childItem);
-        activeDocId = newDoc.id;
-        document.getElementById('page-title').textContent = newDoc.title;
-        document.getElementById('page-subtitle').textContent = '';
-        root.innerHTML = '';
-        enterInlineEdit(childItem, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId));
-      } catch (err) {
-        console.error('하위 문서 생성 실패:', err);
-      }
-    },
   };
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
@@ -173,7 +196,6 @@ async function initGallery() {
     if (documents.length === 0) {
       showEmptyState();
     } else {
-      // documents is already a tree (root nodes with .children arrays)
       documents.forEach((doc) => addDocumentItem(list, doc, handlers, 0));
       const firstItem = list.querySelector('li');
       setActiveItem(list, firstItem);

@@ -74,15 +74,16 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect) {
  *
  * @param {HTMLElement} list        - Parent <ul> to append into
  * @param {object}      docInfo     - Document data including .children[]
- * @param {object}      handlers    - { onSelect, onDelete, onAddChild }
+ * @param {object}      handlers    - { onSelect, onDelete }
  * @param {number}      depth       - Nesting depth (0 = root)
  * @returns {HTMLLIElement}
  */
 export function addDocumentItem(list, docInfo, handlers, depth = 0) {
-  const { onSelect, onDelete, onAddChild } = handlers;
+  const { onSelect, onDelete } = handlers;
 
   const item = document.createElement('li');
   item.dataset.id = docInfo.id;
+  item.dataset.depth = String(depth);
 
   const row = document.createElement('div');
   row.className = 'document-row';
@@ -122,16 +123,6 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
   menu.className = 'document-menu';
   menu.hidden = true;
 
-  const addChildBtn = document.createElement('button');
-  addChildBtn.type = 'button';
-  addChildBtn.className = 'document-menu-action';
-  addChildBtn.textContent = '하위 페이지 추가';
-  addChildBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menu.hidden = true;
-    onAddChild(docInfo.id, item, childrenList, depth + 1);
-  });
-
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
   deleteBtn.className = 'document-menu-delete';
@@ -149,7 +140,6 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
     menu.hidden = !wasHidden;
   });
 
-  menu.appendChild(addChildBtn);
   menu.appendChild(deleteBtn);
   row.appendChild(toggleBtn);
   row.appendChild(btn);

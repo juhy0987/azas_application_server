@@ -15,7 +15,7 @@ let currentDropTarget = null;
  * @param {string|null} parentBlockId - Parent block id (null for top-level)
  * @param {object}      callbacks     - { addBlockAfter, reloadDocument }
  */
-export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter, reloadDocument } = {}) {
+export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter, reloadDocument, reloadSidebar } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'block-wrapper';
   wrapper.dataset.blockId = block.id;
@@ -121,7 +121,11 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     moreMenu.hidden = true;
-    showBlockDeleteConfirm(wrapper, block.id, reloadDocument);
+    // Page block deletion also requires a sidebar refresh (referenced doc promoted to root)
+    const afterDelete = (block.type === 'page' && reloadSidebar)
+      ? async () => { await reloadSidebar(); reloadDocument?.(); }
+      : reloadDocument;
+    showBlockDeleteConfirm(wrapper, block.id, afterDelete);
   });
 
   // ── Drag and Drop ─────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ export const BLOCK_PALETTE_ITEMS = [
   { type: 'image', label: '이미지', icon: '▣' },
   { type: 'container', label: '컨테이너', icon: '⊞' },
   { type: 'divider', label: '구분선', icon: '—' },
+  { type: 'page', label: '페이지', icon: '⊔' },
 ];
 
 /**
