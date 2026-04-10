@@ -164,7 +164,9 @@ async function initGallery() {
         if (nextWrapper?.dataset?.blockId) {
           await apiMoveBlock(newBlock.id, nextWrapper.dataset.blockId);
         }
-        focusBlock(newWrapper);
+        // For container blocks with an auto-created child, focus that child
+        const firstChildWrapper = newWrapper.querySelector('[data-block-children] > .block-wrapper');
+        focusBlock(firstChildWrapper ?? newWrapper);
       }
       if (newBlock.child_document && callbacks.onPageBlockAdded) {
         callbacks.onPageBlockAdded(newBlock.child_document);
@@ -179,7 +181,9 @@ async function initGallery() {
       if (containerEl) {
         const newWrapper = renderBlock(newBlock, parentBlockId);
         containerEl.appendChild(newWrapper);
-        focusBlock(newWrapper);
+        // For container blocks with an auto-created child, focus that child
+        const firstChildWrapper = newWrapper.querySelector('[data-block-children] > .block-wrapper');
+        focusBlock(firstChildWrapper ?? newWrapper);
       }
       if (newBlock.child_document && callbacks.onPageBlockAdded) {
         callbacks.onPageBlockAdded(newBlock.child_document);
