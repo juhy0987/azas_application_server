@@ -32,6 +32,12 @@ export async function apiDeleteDocument(documentId) {
   if (!res.ok) throw new Error('Failed to delete document');
 }
 
+export async function apiCreateChildDocument(parentId) {
+  const res = await fetch(`/api/documents/${parentId}/children`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to create child document');
+  return res.json();
+}
+
 export async function apiPatchBlock(blockId, fields) {
   const res = await fetch(`/api/blocks/${blockId}`, {
     method: 'PATCH',

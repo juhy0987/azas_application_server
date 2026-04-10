@@ -4,6 +4,7 @@ import {
   fetchDocuments,
   fetchDocument,
   apiCreateDocument,
+  apiCreateChildDocument,
   apiDeleteDocument,
   apiCreateBlock,
   apiMoveBlock,
@@ -43,7 +44,6 @@ async function initGallery() {
       if (afterWrapper) {
         const newWrapper = renderBlock(newBlock, parentBlockId);
         afterWrapper.after(newWrapper);
-        // 서버 순서도 DOM과 일치시킴: 삽입된 위치의 다음 형제 앞으로 이동
         const nextWrapper = newWrapper.nextElementSibling;
         if (nextWrapper?.dataset?.blockId) {
           await apiMoveBlock(newBlock.id, nextWrapper.dataset.blockId);
@@ -52,7 +52,6 @@ async function initGallery() {
       }
     };
 
-    // Also keep a plain addBlock for appending to a container or root
     const addBlock = async (type, parentBlockId = null) => {
       const newBlock = await apiCreateBlock(activeDocId, type, parentBlockId);
       const containerEl = parentBlockId
@@ -64,13 +63,11 @@ async function initGallery() {
         focusBlock(newWrapper);
       }
     };
-    // Expose addBlock via callbacks so blockPalette's fallback path works
     callbacks.addBlock = addBlock;
 
     try {
       const payload = await fetchDocument(documentId);
 
-      // Ensure the last root-level block is always a text block
       const rootBlocks = payload.blocks;
       const lastBlock = rootBlocks[rootBlocks.length - 1];
       if (!lastBlock || lastBlock.type !== 'text') {
@@ -108,6 +105,7 @@ async function initGallery() {
     root.replaceChildren(p);
   }
 
+  // ── Shared document action handlers ──────────────────────────────────────
   const handlers = {
     onSelect(docId) {
       loadDocument(docId);
@@ -131,6 +129,30 @@ async function initGallery() {
         console.error('문서 삭제 실패:', err);
       }
     },
+    async onAddChild(parentId, parentItem, childrenList, childDepth) {
+      try {
+        const newDoc = await apiCreateChildDocument(parentId);
+
+        // Mark toggle button as having children and expand
+        const toggleBtn = parentItem.querySelector(':scope > .document-row > .document-toggle-btn');
+        if (toggleBtn) {
+          toggleBtn.classList.add('has-children', 'is-expanded');
+          toggleBtn.setAttribute('aria-expanded', 'true');
+        }
+        childrenList.hidden = false;
+
+        const childItem = addDocumentItem(childrenList, newDoc, handlers, childDepth);
+        closeAllMenus(list);
+        setActiveItem(list, childItem);
+        activeDocId = newDoc.id;
+        document.getElementById('page-title').textContent = newDoc.title;
+        document.getElementById('page-subtitle').textContent = '';
+        root.innerHTML = '';
+        enterInlineEdit(childItem, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId));
+      } catch (err) {
+        console.error('하위 문서 생성 실패:', err);
+      }
+    },
   };
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
@@ -139,20 +161,20 @@ async function initGallery() {
     document.getElementById('sidebar-panel'),
   );
 
-  // Close document menus and block more-menus when clicking outside
   document.addEventListener('click', () => {
     closeAllMenus(list);
     document.querySelectorAll('.block-more-menu').forEach((m) => (m.hidden = true));
   });
 
-  // ── Load initial document list ────────────────────────────────────────────
+  // ── Load initial document tree ────────────────────────────────────────────
   try {
     const documents = await fetchDocuments();
 
     if (documents.length === 0) {
       showEmptyState();
     } else {
-      documents.forEach((doc) => addDocumentItem(list, doc, handlers));
+      // documents is already a tree (root nodes with .children arrays)
+      documents.forEach((doc) => addDocumentItem(list, doc, handlers, 0));
       const firstItem = list.querySelector('li');
       setActiveItem(list, firstItem);
       await loadDocument(documents[0].id);
@@ -168,15 +190,13 @@ async function initGallery() {
   newDocBtn.addEventListener('click', async () => {
     try {
       const newDoc = await apiCreateDocument();
-      const item = addDocumentItem(list, newDoc, handlers);
+      const item = addDocumentItem(list, newDoc, handlers, 0);
       closeAllMenus(list);
       setActiveItem(list, item);
-      // Show blank page immediately
       document.getElementById('page-title').textContent = newDoc.title;
       document.getElementById('page-subtitle').textContent = '';
       root.innerHTML = '';
       activeDocId = newDoc.id;
-      // Enter inline title edit mode
       enterInlineEdit(item, newDoc.id, newDoc.title, list, (docId) => loadDocument(docId));
     } catch (err) {
       console.error('문서 생성 실패:', err);

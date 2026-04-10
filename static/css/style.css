@@ -275,6 +275,73 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   background: #fdeaea;
 }
 
+/* ── Document tree: toggle chevron ──────────────────────────────────────────── */
+
+.document-toggle-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--ink-soft);
+  opacity: 0;           /* hidden by default; visible on row hover or when has-children */
+  transition: opacity 0.12s, transform 0.2s ease;
+}
+
+.document-toggle-btn::before {
+  content: '›';
+  font-size: 1.1rem;
+  line-height: 1;
+  display: block;
+  transition: transform 0.2s ease;
+}
+
+.document-row:hover .document-toggle-btn,
+.document-toggle-btn.has-children {
+  opacity: 1;
+}
+
+.document-toggle-btn:hover {
+  background: var(--paper-deep);
+}
+
+.document-toggle-btn.is-expanded::before {
+  transform: rotate(90deg);
+}
+
+/* ── Document tree: children list ───────────────────────────────────────────── */
+
+.document-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.2rem;
+}
+
+/* ── Document menu: non-destructive action ───────────────────────────────────── */
+
+.document-menu-action {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.document-menu-action:hover {
+  background: var(--accent-soft);
+}
+
 .block-page-cover {
   width: 100%;
   height: 15rem;
