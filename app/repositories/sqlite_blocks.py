@@ -188,18 +188,6 @@ class SQLiteBlockRepository:
 
     Returns the created block data, or None if document not found or type is unsupported.
     """
-    match block_type:
-      case "text":
-        default_content: dict[str, Any] = {"text": ""}
-      case "image":
-        default_content = {"url": "", "caption": ""}
-      case "container":
-        default_content = {"title": "", "layout": "vertical"}
-      case "divider":
-        default_content = {}
-      case _:
-        return None
-
     if self._session.get(DocumentRow, document_id) is None:
       return None
 
@@ -212,6 +200,25 @@ class SQLiteBlockRepository:
       ).scalar_one_or_none()
       if parent_exists is None:
         return None
+
+    # ── Page block: auto-create a child document ──────────────────────────────
+    if block_type == "page":
+      child_doc = self.create_child_document(document_id)
+      if child_doc is None:
+        return None
+      default_content: dict[str, Any] = {"document_id": child_doc["id"]}
+    else:
+      match block_type:
+        case "text":
+          default_content = {"text": ""}
+        case "image":
+          default_content = {"url": "", "caption": ""}
+        case "container":
+          default_content = {"title": "", "layout": "vertical"}
+        case "divider":
+          default_content = {}
+        case _:
+          return None
 
     parent_filter = (
       BlockRow.parent_block_id.is_(None)
@@ -233,13 +240,33 @@ class SQLiteBlockRepository:
       content_json=json.dumps(default_content, ensure_ascii=False),
     ))
     self._session.commit()
-    return {"id": block_id, "type": block_type, **default_content}
+
+    result: dict[str, Any] = {"id": block_id, "type": block_type, **default_content}
+    if block_type == "page":
+      result["title"] = child_doc["title"]
+      result["child_document"] = child_doc
+    return result
 
   def delete_block(self, block_id: str) -> bool:
-    """Delete a block and all its descendants. Compacts sibling positions after deletion."""
+    """Delete a block and all its descendants. Compacts sibling positions after deletion.
+
+    When deleting a page block, the referenced document is promoted to root
+    (parent_id cleared) so it is not orphaned.
+    """
     block_row = self._session.get(BlockRow, block_id)
     if block_row is None:
       return False
+
+    # Promote referenced document if this is a page block
+    if block_row.type == "page":
+      content = json.loads(block_row.content_json)
+      ref_doc_id = content.get("document_id")
+      if ref_doc_id:
+        self._session.execute(
+          update(DocumentRow)
+          .where(DocumentRow.id == ref_doc_id)
+          .values(parent_id=None)
+        )
 
     document_id = block_row.document_id
     parent_block_id = block_row.parent_block_id
