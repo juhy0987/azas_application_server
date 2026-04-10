@@ -406,11 +406,16 @@ function createCalloutBlock(block) {
   const node = template.content.firstElementChild.cloneNode(true);
   const emojiEl = node.querySelector('.callout-emoji');
   const textEl = node.querySelector('.callout-text');
+  const childrenRoot = node.querySelector('.callout-children');
 
   node.dataset.color = block.color || 'yellow';
   emojiEl.textContent = block.emoji || '💡';
   textEl.textContent = block.text || '';
   enableContentEditable(textEl, block.id, 'text', node);
+
+  (block.children || []).forEach((child) => {
+    childrenRoot.appendChild(renderBlock(child, block.id));
+  });
 
   return node;
 }
