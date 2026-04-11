@@ -60,6 +60,10 @@ function makeTextEditable(node, blockId, {
   let currentLevel = node.dataset.level ? Number(node.dataset.level) : null;
   let escaped = false;
 
+  // is-editing은 가장 가까운 .notion-block에 적용 (toggle-title처럼 node 자체가
+  // .notion-block이 아닌 경우에도 편집 상태 스타일이 일관되게 동작하도록)
+  const editingTarget = node.closest('.notion-block') ?? node;
+
   // ── Click: activate editing (but let link clicks open the URL) ──────────
   node.addEventListener('click', (e) => {
     if (node.contentEditable !== 'true') {
@@ -75,7 +79,7 @@ function makeTextEditable(node, blockId, {
     originalText = node.textContent;
     escaped = false;
     node.contentEditable = 'true';
-    node.classList.add('is-editing');
+    editingTarget.classList.add('is-editing');
     setEditingNode(node);
     node.focus();
     const sel = window.getSelection();
@@ -90,7 +94,7 @@ function makeTextEditable(node, blockId, {
     if (isInsideToolbar(e.relatedTarget)) return;
     if (node.contentEditable !== 'true') return;
     node.contentEditable = 'false';
-    node.classList.remove('is-editing');
+    editingTarget.classList.remove('is-editing');
     clearEditingNode();
 
     if (escaped) { escaped = false; return; }
@@ -145,7 +149,7 @@ function makeTextEditable(node, blockId, {
       escaped = true;
       node.innerHTML = originalHtml;
       node.contentEditable = 'false';
-      node.classList.remove('is-editing');
+      editingTarget.classList.remove('is-editing');
       clearEditingNode();
       return;
     }
@@ -458,6 +462,18 @@ function createCodeBlock(block) {
 
   applyHighlight(plainCode);
 
+  // ── IME 조합 상태 추적 (한국어 등 조합형 입력 중 innerHTML 교체 방지) ────────
+  let isComposing = false;
+  codeEl.addEventListener('compositionstart', () => { isComposing = true; });
+  codeEl.addEventListener('compositionend', () => {
+    isComposing = false;
+    // 조합 완료 후 한 번 하이라이팅 적용
+    const offset = getCaretOffset(codeEl);
+    plainCode = codeEl.textContent;
+    applyHighlight(plainCode);
+    setCaretOffset(codeEl, offset);
+  });
+
   // ── Click → activate editing ─────────────────────────────────────────────
   codeEl.addEventListener('click', () => {
     if (codeEl.contentEditable === 'true') return;
@@ -474,6 +490,11 @@ function createCodeBlock(block) {
 
   // ── Input → live highlight with cursor preservation ──────────────────────
   codeEl.addEventListener('input', () => {
+    if (isComposing) {
+      // 조합 중에는 plainCode만 갱신하고 innerHTML 교체는 compositionend에서 수행
+      plainCode = codeEl.textContent;
+      return;
+    }
     const offset = getCaretOffset(codeEl);
     plainCode = codeEl.textContent;
     applyHighlight(plainCode);
