@@ -209,7 +209,7 @@ async function initGallery() {
         if (targetBlock) {
           const focusTarget = targetBlock.classList.contains('notion-text')
             ? targetBlock
-            : (targetBlock.querySelector('.notion-caption, .toggle-title, .quote-text, .callout-text') ?? targetBlock);
+            : (targetBlock.querySelector('.notion-caption, .toggle-title, .quote-text, .callout-text, .code-content') ?? targetBlock);
           focusTarget.click();
         }
       }
