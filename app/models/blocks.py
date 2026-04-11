@@ -42,9 +42,9 @@ class ToggleBlock(BlockBase):
   """Collapsible block with a title and nested child blocks."""
 
   type: Literal["toggle"]
-  title: str = ""
-  formatted_title: str | None = None  # HTML string with inline formatting
-  level: Literal[1, 2, 3] | None = None  # heading level for the title
+  text: str = ""
+  formatted_text: str | None = None
+  level: Literal[1, 2, 3] | None = None
   is_open: bool = False
   children: list["Block"] = Field(default_factory=list)
 

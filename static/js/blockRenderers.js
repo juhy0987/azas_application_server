@@ -348,11 +348,11 @@ function createToggleBlock(block) {
 
   applyOpen(isOpen);
 
-  // Render formatted HTML when available, fall back to plain text
-  if (block.formatted_title) {
-    titleEl.innerHTML = sanitizeHtml(block.formatted_title);
+  // Render: identical to text block (formatted_text / text / level)
+  if (block.formatted_text) {
+    titleEl.innerHTML = sanitizeHtml(block.formatted_text);
   } else {
-    titleEl.textContent = block.title || '';
+    titleEl.textContent = block.text || '';
   }
   if (block.level) titleEl.dataset.level = String(block.level);
 
@@ -363,12 +363,9 @@ function createToggleBlock(block) {
     apiPatchBlock(block.id, { is_open: isOpen }).catch(console.error);
   });
 
-  // ── Title editing: same interface as text block ──────────────────────────
+  // ── Title editing: identical interface to text block ─────────────────────
   makeTextEditable(titleEl, block.id, {
-    textField: 'title',
-    htmlField: 'formatted_title',
     enableSlash: false,
-    enableHeading: true,
     onEnter: () => titleEl.blur(),
   });
 

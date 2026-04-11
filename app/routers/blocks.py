@@ -19,9 +19,8 @@ class BlockPatch(BaseModel):
   # image
   url: str | None = None
   caption: str | None = None
-  # container / toggle
+  # container
   title: str | None = None
-  formatted_title: str | None = None  # HTML string with inline formatting for toggle title
   # toggle
   is_open: bool | None = None
   # code

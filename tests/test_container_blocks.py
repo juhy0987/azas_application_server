@@ -14,7 +14,7 @@ class TestCreateContainerBlocks:
   """create_block returns correct defaults for each new type."""
 
   @pytest.mark.parametrize("block_type,expected_keys", [
-    ("toggle", {"title", "is_open"}),
+    ("toggle", {"text", "is_open"}),
     ("quote", {"text"}),
     ("code", {"code", "language"}),
     ("callout", {"text", "emoji", "color"}),
@@ -30,7 +30,7 @@ class TestCreateContainerBlocks:
   def test_toggle_defaults(self, repo):
     doc = repo.create_document()
     block = repo.create_block(doc["id"], "toggle")
-    assert block["title"] == ""
+    assert block["text"] == ""
     assert block["is_open"] is True  # default open so user can type immediately
 
   def test_container_types_include_one_child_on_create(self, repo):
@@ -58,13 +58,13 @@ class TestCreateContainerBlocks:
 class TestUpdateContainerBlocks:
   """update_block persists type-specific fields correctly."""
 
-  def test_update_toggle_title_and_open(self, repo):
+  def test_update_toggle_text_and_open(self, repo):
     doc = repo.create_document()
     block = repo.create_block(doc["id"], "toggle")
-    assert repo.update_block(block["id"], {"title": "섹션 제목", "is_open": True})
+    assert repo.update_block(block["id"], {"text": "섹션 제목", "is_open": True})
     fetched = repo.get_document(doc["id"])
     toggle = fetched.blocks[0]
-    assert toggle.title == "섹션 제목"
+    assert toggle.text == "섹션 제목"
     assert toggle.is_open is True
 
   def test_update_quote_text(self, repo):

@@ -251,7 +251,7 @@ class SQLiteBlockRepository:
         case "container":
           default_content = {"title": "", "layout": "vertical"}
         case "toggle":
-          default_content = {"title": "", "is_open": True}
+          default_content = {"text": "", "is_open": True}
         case "quote":
           default_content = {"text": ""}
         case "code":
@@ -389,7 +389,7 @@ class SQLiteBlockRepository:
       case "container":
         default_content = {"title": "", "layout": "vertical"}
       case "toggle":
-        default_content = {"title": "", "is_open": True}
+        default_content = {"text": "", "is_open": True}
       case "quote":
         default_content = {"text": ""}
       case "code":
