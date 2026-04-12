@@ -8,6 +8,7 @@ import {
   apiUpdateTitle,
   apiCreateBlock,
   apiMoveBlock,
+  apiUpdateDbRowProperties,
 } from "./api.js";
 import { openPagePickerModal } from "./pagePickerModal.js";
 import { callbacks, renderBlock, renderDocument, focusBlock } from "./blockRenderers.js";
@@ -149,6 +150,10 @@ async function initGallery() {
     document.querySelectorAll(`.page-block-title[data-doc-id="${documentId}"]`).forEach((el) => {
       el.textContent = newTitle;
     });
+    // Update db row title cells that reference this document
+    document.querySelectorAll(`.db-row[data-doc-id="${documentId}"] .db-row-title`).forEach((el) => {
+      el.textContent = newTitle;
+    });
   };
 
   // ── Document loader ───────────────────────────────────────────────────────
@@ -195,6 +200,15 @@ async function initGallery() {
       }
     };
 
+    // db_row 추가: database 블록 id를 parent_block_id로 전달
+    callbacks.addDbRow = async (dbBlockId) => {
+      const newBlock = await apiCreateBlock(activeDocId, 'db_row', dbBlockId);
+      if (newBlock.child_document && callbacks.onPageBlockAdded) {
+        callbacks.onPageBlockAdded(newBlock.child_document);
+      }
+      if (callbacks.reloadDocument) callbacks.reloadDocument();
+    };
+
     const addBlock = async (type, parentBlockId = null) => {
       let targetDocumentId = null;
       if (type === 'page') {
@@ -236,6 +250,7 @@ async function initGallery() {
       }
 
       renderDocument(payload);
+      renderDbProperties(payload.db_context);
       if (focusBlockId) {
         const targetWrapper = root.querySelector(`[data-block-id="${focusBlockId}"]`);
         const targetBlock = targetWrapper?.querySelector('.notion-block');
@@ -252,6 +267,87 @@ async function initGallery() {
       p.textContent = `문서를 불러오지 못했습니다: ${err.message}`;
       root.replaceChildren(p);
     }
+  }
+
+  // ── DB row 속성 패널 ──────────────────────────────────────────────────────
+  /**
+   * db_context가 있을 때 타이틀 아래에 속성 패널을 렌더링한다.
+   * @param {object|null} ctx - DbContext | null
+   */
+  function renderDbProperties(ctx) {
+    const panel = document.getElementById('page-properties');
+    panel.innerHTML = '';
+
+    if (!ctx || !ctx.columns || ctx.columns.length === 0) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+
+    ctx.columns.forEach((col) => {
+      const row = document.createElement('div');
+      row.className = 'db-prop-row';
+
+      const label = document.createElement('span');
+      label.className = 'db-prop-label';
+      label.textContent = col.name;
+      row.appendChild(label);
+
+      const valueWrap = document.createElement('div');
+      valueWrap.className = 'db-prop-value';
+
+      if (col.type === 'checkbox') {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'db-prop-checkbox';
+        cb.checked = ctx.properties[col.id] === true || ctx.properties[col.id] === 'true';
+        cb.addEventListener('change', async () => {
+          ctx.properties[col.id] = cb.checked;
+          await _saveDbProperties(ctx);
+        });
+        valueWrap.appendChild(cb);
+      } else {
+        const input = document.createElement('input');
+        input.type = col.type === 'number' ? 'number' : 'text';
+        input.className = 'db-prop-input';
+        input.value = ctx.properties[col.id] ?? '';
+        input.placeholder = col.type === 'number' ? '0' : '값 입력...';
+
+        let original = input.value;
+        input.addEventListener('focus', () => { original = input.value; });
+        input.addEventListener('blur', async () => {
+          if (input.value === original) return;
+          ctx.properties[col.id] = input.value;
+          await _saveDbProperties(ctx);
+          // database 블록이 열려 있는 경우 셀도 갱신
+          _syncDbCellInParent(ctx.block_id, col.id, input.value);
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+          if (e.key === 'Escape') { input.value = original; input.blur(); }
+        });
+        valueWrap.appendChild(input);
+      }
+
+      row.appendChild(valueWrap);
+      panel.appendChild(row);
+    });
+  }
+
+  async function _saveDbProperties(ctx) {
+    try {
+      await apiUpdateDbRowProperties(ctx.block_id, ctx.properties);
+    } catch (err) {
+      console.error('속성 저장 실패:', err);
+    }
+  }
+
+  function _syncDbCellInParent(rowBlockId, colId, newValue) {
+    const cellInput = document.querySelector(
+      `.db-row[data-row-block-id="${rowBlockId}"] [data-col-id="${colId}"] .db-cell-input`
+    );
+    if (cellInput) cellInput.value = newValue;
   }
 
   function showEmptyState() {

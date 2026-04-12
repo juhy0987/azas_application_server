@@ -1513,6 +1513,297 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   }
 }
 
+/* ── Database Block ──────────────────────────────────────────────────────── */
+
+.notion-database {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.db-title-row {
+  padding: 0.6rem 0.75rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.db-title-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.db-title-input::placeholder {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.db-table-wrap {
+  overflow-x: auto;
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.db-th {
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  position: relative;
+}
+
+.db-th-open {
+  width: 32px;
+  padding: 0.45rem 0.4rem;
+}
+
+.db-th-title {
+  min-width: 160px;
+}
+
+.db-th-add {
+  width: 36px;
+  padding: 0.45rem 0.4rem;
+}
+
+.db-col-name {
+  cursor: pointer;
+  user-select: none;
+}
+
+.db-col-name:hover {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.db-col-remove-btn {
+  display: none;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0 0.2rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  margin-left: 4px;
+}
+
+.db-th:hover .db-col-remove-btn {
+  display: inline;
+}
+
+.db-col-remove-btn:hover {
+  color: #e53e3e;
+}
+
+.db-add-col-btn {
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.db-add-col-btn:hover {
+  color: var(--accent);
+}
+
+.db-col-rename-input {
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.15rem 0.3rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  outline: none;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.db-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.db-row:last-child {
+  border-bottom: none;
+}
+
+.db-row:hover {
+  background: var(--paper);
+}
+
+.db-row.is-broken-ref {
+  opacity: 0.5;
+}
+
+.db-td {
+  padding: 0.4rem 0.65rem;
+  vertical-align: middle;
+}
+
+.db-td-open {
+  width: 32px;
+  padding: 0.4rem 0.4rem;
+  text-align: center;
+}
+
+.db-td-title {
+  min-width: 160px;
+}
+
+.db-row-open-btn {
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.db-row:hover .db-row-open-btn {
+  opacity: 1;
+}
+
+.db-row-open-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.db-row-title {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.db-row-title[style*="cursor"] {
+  color: var(--accent);
+}
+
+.db-row-title[style*="cursor"]:hover {
+  text-decoration: underline;
+}
+
+.db-cell-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  padding: 0;
+}
+
+.db-cell-input:focus {
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.db-cell-checkbox {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.db-add-row-btn {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.825rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.db-add-row-btn:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ── DB row 페이지 속성 패널 ─────────────────────────────────────────────── */
+
+.page-properties {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.db-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2rem;
+}
+
+.db-prop-label {
+  flex: 0 0 140px;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-prop-value {
+  flex: 1;
+}
+
+.db-prop-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  padding: 0.15rem 0.2rem;
+  border-radius: 3px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.db-prop-input:focus {
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.db-prop-checkbox {
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
 @media (max-width: 920px) {
   .sidebar {
     position: static;
