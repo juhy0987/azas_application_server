@@ -115,6 +115,7 @@ class DatabaseBlock(BlockBase):
 
   type: Literal["database"]
   title: str = ""
+  color: Literal["default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"] = "default"
   columns: list[ColumnSchema] = Field(default_factory=list)
   rows: list[DbRowBlock] = Field(default_factory=list)  # populated at query time
 

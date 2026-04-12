@@ -20,12 +20,39 @@ export const type = "database";
  * @param {object} opts.callbacks
  * @returns {HTMLElement}
  */
+// 사용 가능한 배경 색상 목록
+const DB_COLORS = [
+  { id: "default", label: "기본 (흰색)",  bg: "#ffffff" },
+  { id: "gray",    label: "회색",          bg: "#f1f1ef" },
+  { id: "brown",   label: "갈색",          bg: "#f4eeee" },
+  { id: "orange",  label: "주황",          bg: "#fbecdd" },
+  { id: "yellow",  label: "노랑",          bg: "#fbf3db" },
+  { id: "green",   label: "초록",          bg: "#edf3ec" },
+  { id: "blue",    label: "파랑",          bg: "#e7f0f8" },
+  { id: "purple",  label: "보라",          bg: "#f4f0f7" },
+  { id: "pink",    label: "분홍",          bg: "#f9eff3" },
+  { id: "red",     label: "빨강",          bg: "#fbe4e4" },
+];
+
+/**
+ * color id를 받아 .notion-database 요소에 배경색 인라인 스타일을 적용한다.
+ * @param {HTMLElement} el
+ * @param {string} colorId
+ */
+function applyColor(el, colorId) {
+  const found = DB_COLORS.find((c) => c.id === colorId) ?? DB_COLORS[0];
+  el.style.backgroundColor = found.bg;
+}
+
 export function create(block, { callbacks = {} } = {}) {
   const wrap = document.createElement("div");
   wrap.className = "notion-block notion-database";
   wrap.dataset.dbBlockId = block.id;
 
-  // ── 제목 ────────────────────────────────────────────────────────────────────
+  // 저장된 색상 적용 (없으면 기본 흰색)
+  applyColor(wrap, block.color ?? "default");
+
+  // ── 제목 + 색상 버튼 ────────────────────────────────────────────────────────
   const titleRow = document.createElement("div");
   titleRow.className = "db-title-row";
 
@@ -45,7 +72,60 @@ export function create(block, { callbacks = {} } = {}) {
     if (e.key === "Enter") titleInput.blur();
   });
 
+  // 색상 선택 버튼
+  const colorBtn = document.createElement("button");
+  colorBtn.type = "button";
+  colorBtn.className = "db-color-btn";
+  colorBtn.title = "배경 색상 변경";
+  colorBtn.textContent = "🎨";
+  colorBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleColorPalette();
+  });
+
+  // 색상 팔레트 드롭다운
+  const colorPalette = document.createElement("div");
+  colorPalette.className = "db-color-palette";
+  colorPalette.hidden = true;
+
+  DB_COLORS.forEach((c) => {
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "db-color-swatch";
+    swatch.title = c.label;
+    swatch.style.backgroundColor = c.bg;
+    if ((block.color ?? "default") === c.id) swatch.classList.add("is-active");
+
+    swatch.addEventListener("mousedown", (e) => e.preventDefault());
+    swatch.addEventListener("click", async () => {
+      block.color = c.id;
+      applyColor(wrap, c.id);
+      colorPalette.querySelectorAll(".db-color-swatch").forEach((s) => s.classList.remove("is-active"));
+      swatch.classList.add("is-active");
+      colorPalette.hidden = true;
+      try {
+        await apiPatchBlock(block.id, { color: c.id });
+      } catch (err) {
+        console.error("색상 저장 실패:", err);
+      }
+    });
+    colorPalette.appendChild(swatch);
+  });
+
+  function toggleColorPalette() {
+    colorPalette.hidden = !colorPalette.hidden;
+  }
+
+  // 팔레트 외부 클릭 시 닫기
+  document.addEventListener("click", (e) => {
+    if (!colorPalette.contains(e.target) && e.target !== colorBtn) {
+      colorPalette.hidden = true;
+    }
+  });
+
   titleRow.appendChild(titleInput);
+  titleRow.appendChild(colorBtn);
+  titleRow.appendChild(colorPalette);
   wrap.appendChild(titleRow);
 
   // ── 테이블 ──────────────────────────────────────────────────────────────────

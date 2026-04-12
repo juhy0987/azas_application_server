@@ -366,7 +366,7 @@ class SQLiteBlockRepository:
 
     # ── Database block ────────────────────────────────────────────────────────
     elif block_type == "database":
-      default_content = {"title": "", "columns": []}
+      default_content = {"title": "", "color": "default", "columns": []}
 
     # ── db_row block: always creates a child document ─────────────────────────
     elif block_type == "db_row":

@@ -26,7 +26,9 @@ class BlockPatch(BaseModel):
   language: str | None = None
   # callout
   emoji: str | None = None
-  color: Literal["yellow", "blue", "green", "red", "gray"] | None = None
+  color: Literal["yellow", "blue", "green", "red", "gray", "default", "brown", "orange", "purple", "pink"] | None = None
+  # database
+  title: str | None = None
 
 
 class BlockPositionPatch(BaseModel):
