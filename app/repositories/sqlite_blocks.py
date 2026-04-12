@@ -35,6 +35,10 @@ class SQLiteBlockRepository:
 
   # ── Documents ──────────────────────────────────────────────────────────────
 
+  def document_exists(self, document_id: str) -> bool:
+    """Return True if a document with the given id exists."""
+    return self._session.get(DocumentRow, document_id) is not None
+
   def list_documents(self) -> list[dict]:
     """Return all documents as a parent-child tree sorted by title.
 
@@ -123,7 +127,7 @@ class SQLiteBlockRepository:
           is_broken = bool(doc_id) and doc_id not in doc_titles
           nodes.append(PageBlock.model_validate({
             **item,
-            "title": doc_titles.get(doc_id, "알 수 없는 문서"),
+            "title": "" if is_broken else doc_titles.get(doc_id, ""),
             "is_broken_ref": is_broken,
           }))
         else:
@@ -333,8 +337,10 @@ class SQLiteBlockRepository:
   def delete_block(self, block_id: str) -> bool:
     """Delete a block and all its descendants. Compacts sibling positions after deletion.
 
-    When deleting a page block, the referenced document is promoted to root
-    (parent_id cleared) so it is not orphaned.
+    For owned page blocks (is_reference=False) the referenced document is promoted
+    to root (parent_id cleared) so it is not orphaned.
+    Reference page blocks (is_reference=True) are removed without touching the
+    target document's parent hierarchy.
     """
     block_row = self._session.get(BlockRow, block_id)
     if block_row is None:

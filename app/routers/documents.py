@@ -87,9 +87,14 @@ def create_block(
   """
   if body.target_document_id is not None and body.type != "page":
     raise HTTPException(status_code=422, detail="target_document_id is only valid for page blocks")
+  if not repo.document_exists(document_id):
+    raise HTTPException(status_code=404, detail="Document not found")
+  if body.type == "page" and body.target_document_id is not None:
+    if not repo.document_exists(body.target_document_id):
+      raise HTTPException(status_code=404, detail="Target document not found")
   result = repo.create_block(document_id, body.type, body.parent_block_id, body.target_document_id)
   if result is None:
-    raise HTTPException(status_code=404, detail="Document not found")
+    raise HTTPException(status_code=422, detail="Parent block not found")
   return result
 
 
