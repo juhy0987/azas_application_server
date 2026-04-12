@@ -1844,13 +1844,11 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 .page-properties {
   max-width: 720px;
   margin: 0 auto 1.5rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
+  padding: 0 1rem;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
 }
 
 .db-prop-row {
@@ -1858,6 +1856,11 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   align-items: center;
   gap: 0.75rem;
   min-height: 2rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.db-prop-row:first-child {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .db-prop-label {
