@@ -1910,6 +1910,45 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   overflow: hidden;
 }
 
+/* ── 편집 유도 placeholder (기존 블록 / 타입 변환 후) ───────────────────── */
+
+.url-embed-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.url-embed-placeholder-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.url-embed-placeholder-text {
+  flex: 1;
+}
+
+.url-embed-placeholder-edit-btn {
+  border: none;
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.url-embed-placeholder-edit-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
 /* ── 입력 폼 ─────────────────────────────────────────────────────────────── */
 
 .url-embed-input-wrap {

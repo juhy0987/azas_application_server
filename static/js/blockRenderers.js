@@ -39,11 +39,12 @@ export const callbacks = {
 
 // ── Public render functions ───────────────────────────────────────────────────
 
-export function renderBlock(block, parentBlockId = null) {
+export function renderBlock(block, parentBlockId = null, { isNew = false } = {}) {
   const blockEl = blockRegistry.create(block, {
     callbacks,
     renderBlock,
     focusBlock,
+    isNew,
   });
   return wrapBlock(blockEl, block, parentBlockId, {
     addBlockAfter: callbacks.addBlockAfter,
