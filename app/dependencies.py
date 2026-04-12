@@ -21,14 +21,18 @@ _DB_FILE = _BASE_DIR / "data" / "blocks.sqlite3"
 def _migrate(engine: Engine) -> None:
   """Run additive schema migrations that create_all cannot handle."""
   with engine.connect() as conn:
-    try:
-      conn.execute(text("ALTER TABLE documents ADD COLUMN parent_id TEXT"))
-      conn.commit()
-    except OperationalError as e:
-      # SQLite raises OperationalError("duplicate column name") when the column
-      # already exists — that is the only expected error here.
-      if "duplicate column name" not in str(e).lower():
-        raise
+    for ddl in (
+      "ALTER TABLE documents ADD COLUMN parent_id TEXT",
+      "ALTER TABLE documents ADD COLUMN source_block_id TEXT",
+    ):
+      try:
+        conn.execute(text(ddl))
+        conn.commit()
+      except OperationalError as e:
+        # SQLite raises OperationalError("duplicate column name") when the column
+        # already exists — that is the only expected error here.
+        if "duplicate column name" not in str(e).lower():
+          raise
 
 
 @functools.cache

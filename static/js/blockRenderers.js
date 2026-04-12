@@ -12,9 +12,10 @@ import * as quoteBlock from "./blocks/quoteBlock.js";
 import * as calloutBlock from "./blocks/calloutBlock.js";
 import * as dividerBlock from "./blocks/dividerBlock.js";
 import * as pageBlock from "./blocks/pageBlock.js";
+import * as databaseBlock from "./blocks/databaseBlock.js";
 
 // 블록 모듈 등록
-[textBlock, imageBlock, toggleBlock, codeBlock, quoteBlock, calloutBlock, dividerBlock, pageBlock]
+[textBlock, imageBlock, toggleBlock, codeBlock, quoteBlock, calloutBlock, dividerBlock, pageBlock, databaseBlock]
   .forEach((mod) => blockRegistry.register(mod));
 
 // Initialise singleton toolbar once

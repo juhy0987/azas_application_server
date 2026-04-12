@@ -11,6 +11,7 @@ export const BLOCK_PALETTE_ITEMS = [
   { type: 'callout', label: '콜아웃', icon: '💡' },
   { type: 'divider', label: '구분선', icon: '—' },
   { type: 'page', label: '페이지', icon: '⊔' },
+  { type: 'database', label: '데이터베이스', icon: '⊞' },
 ];
 
 /**

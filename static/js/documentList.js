@@ -20,6 +20,11 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
   const existingBtn = listItem.querySelector(':scope > .document-row > .document-item');
   const menuBtn = listItem.querySelector(':scope > .document-row > .document-menu-btn');
 
+  // 기존 버튼의 클래스 목록과 아이콘 텍스트를 캡처해 복원 시 재사용
+  const savedClasses = Array.from(existingBtn.classList);
+  const iconEl = existingBtn.querySelector('.document-item-icon');
+  const savedIconText = iconEl ? iconEl.textContent : null;
+
   const input = document.createElement('input');
   input.type = 'text';
   input.setAttribute('size', '1');
@@ -40,8 +45,22 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'document-item is-active';
-    btn.textContent = title;
+    btn.className = savedClasses.join(' ');
+    btn.classList.add('is-active');
+
+    if (savedIconText !== null) {
+      const icon = document.createElement('span');
+      icon.className = 'document-item-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = savedIconText;
+      btn.appendChild(icon);
+    }
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'document-item-title';
+    titleSpan.textContent = title;
+    btn.appendChild(titleSpan);
+
     btn.addEventListener('click', () => {
       closeAllMenus(list);
       setActiveItem(list, listItem);
@@ -59,7 +78,11 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
       .then(() => { if (onTitleSaved) onTitleSaved(docId, newTitle); })
       .catch((err) => {
         console.error(err);
-        if (btn) btn.textContent = initialTitle;
+        if (btn) {
+          const ts = btn.querySelector('.document-item-title');
+          if (ts) ts.textContent = initialTitle;
+          else btn.textContent = initialTitle;
+        }
       });
   }
 
@@ -89,6 +112,8 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
  */
 export function addDocumentItem(list, docInfo, handlers, depth = 0) {
   const { onSelect, onDelete, onRename } = handlers;
+  const isDbRow = !!docInfo.is_db_row;
+  const isDatabase = !!docInfo.is_database;
 
   const item = document.createElement('li');
   item.dataset.id = docInfo.id;
@@ -109,70 +134,96 @@ export function addDocumentItem(list, docInfo, handlers, depth = 0) {
   if (hasChildren) {
     toggleBtn.classList.add('has-children');
   } else {
-    // No children: keep button in DOM for layout stability but remove from
-    // tab order and hide from assistive technology.
     toggleBtn.tabIndex = -1;
     toggleBtn.setAttribute('aria-hidden', 'true');
   }
 
-  // ── Document select button ────────────────────────────────────────────────
+  // ── Select/navigate button ────────────────────────────────────────────────
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'document-item';
-  btn.textContent = docInfo.title;
+  if (isDbRow) btn.classList.add('is-db-row');
+  if (isDatabase) btn.classList.add('is-database-node');
+
+  // 아이콘 + 제목 span 구조 (일반 문서도 동일하게 구성해 updateSidebarTitle 통일)
+  const icon = document.createElement('span');
+  icon.className = 'document-item-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  if (isDatabase) icon.textContent = '⊞';
+  else if (isDbRow) icon.textContent = '≡';
+  else icon.textContent = '';
+  btn.appendChild(icon);
+
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'document-item-title';
+  titleSpan.textContent = docInfo.title;
+  btn.appendChild(titleSpan);
+
   btn.addEventListener('click', () => {
     closeAllMenus(list);
-    setActiveItem(list, item);
-    onSelect(docInfo.id);
+    if (isDatabase) {
+      // 데이터베이스 노드 클릭 → 포함된 문서로 이동
+      onSelect(docInfo.parent_doc_id);
+    } else {
+      setActiveItem(list, item);
+      onSelect(docInfo.id);
+    }
   });
 
-  // ── More (⋯) menu button ──────────────────────────────────────────────────
-  const menuBtn = document.createElement('button');
-  menuBtn.type = 'button';
-  menuBtn.className = 'document-menu-btn';
-  menuBtn.setAttribute('aria-label', '더보기');
-  menuBtn.textContent = '⋯';
-
-  const menu = document.createElement('div');
-  menu.className = 'document-menu';
-  menu.hidden = true;
-
-  const renameBtn = document.createElement('button');
-  renameBtn.type = 'button';
-  renameBtn.className = 'document-menu-rename';
-  renameBtn.textContent = '이름 바꾸기';
-  renameBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menu.hidden = true;
-    const currentTitle = btn.textContent;
-    enterInlineEdit(item, docInfo.id, currentTitle, list, (docId) => onSelect(docId), (docId, newTitle) => {
-      if (onRename) onRename(docId, newTitle);
-    });
-  });
-
-  const deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'document-menu-delete';
-  deleteBtn.textContent = '삭제';
-  deleteBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menu.hidden = true;
-    onDelete(docInfo.id, item);
-  });
-
-  menuBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const wasHidden = menu.hidden;
-    closeAllMenus(list);
-    menu.hidden = !wasHidden;
-  });
-
-  menu.appendChild(renameBtn);
-  menu.appendChild(deleteBtn);
+  // ── More (⋯) menu (database 가상 노드는 메뉴 없음) ───────────────────────
   row.appendChild(toggleBtn);
   row.appendChild(btn);
-  row.appendChild(menuBtn);
-  row.appendChild(menu);
+
+  if (!isDatabase) {
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'document-menu-btn';
+    menuBtn.setAttribute('aria-label', '더보기');
+    menuBtn.textContent = '⋯';
+
+    const menu = document.createElement('div');
+    menu.className = 'document-menu';
+    menu.hidden = true;
+
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'document-menu-rename';
+    renameBtn.textContent = '이름 바꾸기';
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.hidden = true;
+      const currentTitle = titleSpan.textContent;
+      enterInlineEdit(item, docInfo.id, currentTitle, list, (docId) => onSelect(docId), (docId, newTitle) => {
+        if (onRename) onRename(docId, newTitle);
+      });
+    });
+    menu.appendChild(renameBtn);
+
+    // db_row는 사이드바에서 직접 삭제 불가 (database 블록에 broken ref 발생)
+    if (!isDbRow) {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'document-menu-delete';
+      deleteBtn.textContent = '삭제';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.hidden = true;
+        onDelete(docInfo.id, item);
+      });
+      menu.appendChild(deleteBtn);
+    }
+
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasHidden = menu.hidden;
+      closeAllMenus(list);
+      menu.hidden = !wasHidden;
+    });
+
+    row.appendChild(menuBtn);
+    row.appendChild(menu);
+  }
+
   item.appendChild(row);
 
   // ── Children list ─────────────────────────────────────────────────────────

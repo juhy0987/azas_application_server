@@ -39,9 +39,10 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
   moreMenu.className = 'block-more-menu';
   moreMenu.hidden = true;
 
-  // Type change section (only for non-page blocks)
+  // Type change section (only for non-page / non-database blocks)
   const isPageBlock = block.type === 'page';
-  if (!isPageBlock) {
+  const isDbBlock = block.type === 'database' || block.type === 'db_row';
+  if (!isPageBlock && !isDbBlock) {
     const sectionLabel = document.createElement('div');
     sectionLabel.className = 'block-menu-section-label';
     sectionLabel.textContent = '타입 변경';
@@ -126,8 +127,9 @@ export function wrapBlock(blockEl, block, parentBlockId = null, { addBlockAfter,
   deleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     moreMenu.hidden = true;
-    // Page block deletion also requires a sidebar refresh (referenced doc promoted to root)
-    const afterDelete = (block.type === 'page' && reloadSidebar)
+    // page / database / db_row 삭제 시 사이드바 갱신 필요
+    const needsSidebarRefresh = (block.type === 'page' || block.type === 'database' || block.type === 'db_row') && reloadSidebar;
+    const afterDelete = needsSidebarRefresh
       ? async () => { await reloadSidebar(); reloadDocument?.(); }
       : reloadDocument;
     showBlockDeleteConfirm(wrapper, block.id, afterDelete);

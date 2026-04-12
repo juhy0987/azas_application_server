@@ -86,3 +86,49 @@ export async function apiMoveBlock(blockId, beforeBlockId) {
   });
   if (!res.ok) throw new Error('Failed to move block');
 }
+
+// ── Database API ──────────────────────────────────────────────────────────────
+
+export async function apiAddDbColumn(dbBlockId, name, type = 'text', options = []) {
+  const res = await fetch(`/api/database/blocks/${dbBlockId}/schema/columns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, type, options }),
+  });
+  if (!res.ok) throw new Error('Failed to add column');
+  return res.json();
+}
+
+export async function apiUpdateDbColumn(dbBlockId, colId, patch) {
+  const res = await fetch(`/api/database/blocks/${dbBlockId}/schema/columns/${colId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error('Failed to update column');
+}
+
+export async function apiRemoveDbColumn(dbBlockId, colId) {
+  const res = await fetch(`/api/database/blocks/${dbBlockId}/schema/columns/${colId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to remove column');
+}
+
+export async function apiUpdateDbRowProperties(dbRowBlockId, properties) {
+  const res = await fetch(`/api/database/blocks/${dbRowBlockId}/properties`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+  if (!res.ok) throw new Error('Failed to update row properties');
+}
+
+export async function apiPatchDatabaseBlock(dbBlockId, fields) {
+  const res = await fetch(`/api/database/blocks/${dbBlockId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error('Failed to patch database block');
+}
