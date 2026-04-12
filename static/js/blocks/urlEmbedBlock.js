@@ -44,13 +44,13 @@ export function create(block, { isNew = false } = {}) {
 
   // ── 상태 전환 헬퍼 ────────────────────────────────────────────────────────
 
-  /** URL 입력 폼을 표시한다. 에러 메시지는 선택적으로 유지한다. */
-  function showInputMode(keepError = false) {
-    input.value = block.url || "";
-    inputWrap.hidden  = false;
-    card.hidden       = true;
+  /** URL 입력 폼을 표시한다. */
+  function showInputMode() {
+    input.value        = block.url || "";
+    inputWrap.hidden   = false;
+    card.hidden        = true;
     placeholder.hidden = true;
-    if (!keepError) errorWrap.hidden = true;
+    errorWrap.hidden   = true;
     input.focus();
   }
 
@@ -83,11 +83,13 @@ export function create(block, { isNew = false } = {}) {
     errorWrap.hidden  = true;
   }
 
-  /** 에러 메시지를 표시하고 입력 폼도 함께 연다. */
+  /** 에러 메시지만 표시한다. 입력창은 재시도/URL변경 버튼을 통해 연다. */
   function showError(msg) {
-    errorMsg.textContent = msg || "메타데이터를 가져올 수 없습니다.";
-    errorWrap.hidden = false;
-    showInputMode(/* keepError */ true);
+    errorMsg.textContent  = msg || "메타데이터를 가져올 수 없습니다.";
+    errorWrap.hidden      = false;
+    inputWrap.hidden      = true;
+    card.hidden           = true;
+    placeholder.hidden    = true;
   }
 
   function setLoading(isLoading) {
@@ -154,10 +156,10 @@ export function create(block, { isNew = false } = {}) {
   // placeholder 편집 버튼 → 입력 폼으로 전환
   placeholderEdit.addEventListener("click", () => showInputMode());
 
-  // 에러 상태 재시도
+  // 에러 상태 재시도 — 저장된 URL로 바로 재요청. URL 없으면 입력창 오픈
   retryBtn.addEventListener("click", () => {
-    const url = input.value.trim() || block.url;
-    if (url) fetchMeta(url);
+    if (block.url) fetchMeta(block.url);
+    else showInputMode();
   });
 
   // 로고 로드 실패 시 숨김
