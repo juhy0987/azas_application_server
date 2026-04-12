@@ -79,6 +79,25 @@ class DividerBlock(BlockBase):
   type: Literal["divider"]
 
 
+class UrlEmbedBlock(BlockBase):
+  """URL embed block that displays page metadata as a bookmark-style card.
+
+  Metadata fields (title, description, logo, provider) are populated
+  server-side by the /api/url-embed/fetch endpoint.
+
+  Ref: Open Graph Protocol — https://ogp.me/
+  """
+
+  type: Literal["url_embed"]
+  url: str = ""
+  title: str = ""
+  description: str = ""
+  logo: str = ""        # resolved absolute URL: og:image / apple-touch-icon / favicon
+  provider: str = ""    # hostname without "www." prefix
+  fetched_at: str = ""  # ISO-8601 UTC timestamp of last successful fetch
+  status: Literal["pending", "success", "error"] = "pending"
+
+
 class PageBlock(BlockBase):
   """Block that links to another BlockDocument, enabling recursive page nesting."""
 
@@ -130,6 +149,7 @@ Block = Annotated[
   | CodeBlock
   | CalloutBlock
   | DividerBlock
+  | UrlEmbedBlock
   | PageBlock
   | DbRowBlock
   | DatabaseBlock,
