@@ -1,26 +1,37 @@
-# Project Manager
+# projects_display
 
-FastAPI + SQLite 기반의 노션 스타일 블록 페이지 관리 도구입니다.
+노션만으로 부족한 포트폴리오/프로젝트 공개 경험을 보완하기 위해 만든 블록 기반 전시 웹앱입니다.
 
-문서를 블록 단위로 구성·편집할 수 있으며, 블록 간 트리 구조와 드래그 앤 드롭 재정렬을 지원합니다.
+## 한 줄 소개
 
-## 블록 타입
+문서-블록 트리 구조로 프로젝트를 스토리텔링하고, 이미지/중첩 페이지/재정렬 기능으로 "보여주기 좋은" 결과물을 빠르게 구성합니다.
 
-| 타입 | 설명 |
-|------|------|
-| `text` | 텍스트 문단 |
-| `image` | 이미지 URL + 캡션 |
-| `container` | 자식 블록을 중첩하는 레이아웃 컨테이너 |
-| `divider` | 구분선 |
-| `page` | 하위 페이지 링크 |
+## 왜 만들었나
 
-## 아키텍처
+- 노션의 표현 제약을 보완해 포트폴리오 전달력을 높이기 위해
+- 프로젝트를 계층적으로 정리해 탐색성과 맥락 전달을 강화하기 위해
 
-- **백엔드**: FastAPI + Pydantic v2, SQLAlchemy ORM
-- **저장소**: SQLite (`data/blocks.sqlite3`)
-- **프론트엔드**: Vanilla JS + Jinja2 템플릿
+## 핵심 구현
 
-블록 데이터는 `documents`, `blocks` 테이블에 저장되며, `parent_block_id`를 이용해 트리 구조로 문서를 구성합니다.
+- 문서 트리와 중첩 페이지(페이지 블록 생성 시 자식 문서 자동 생성)
+- 다양한 블록 타입 편집(텍스트, 이미지, 컨테이너, 토글, 인용, 코드, 콜아웃, 구분선)
+- 블록 순서 재배치 및 하위 트리 삭제/정합성 유지
+- 이미지 업로드 시 WebP 압축 및 썸네일 자동 생성
+
+## 기술 스택
+
+- Backend: FastAPI, Pydantic v2, SQLAlchemy
+- Frontend: Jinja2, Vanilla JavaScript, CSS
+- Database: SQLite
+- Runtime: Python 3.12+, uv, uvicorn
+- Test: pytest, httpx, pytest-anyio
+
+## 설계 포인트
+
+- 계층 분리: Router / Repository / Model
+- 패턴 적용: Repository Pattern, Dependency Injection, Discriminated Union
+- 데이터 구조: parent 기반 Recursive Tree Mapping
+- 무결성: 연관 생성 작업을 단일 트랜잭션으로 처리
 
 ## 실행 방법
 
@@ -29,55 +40,16 @@ uv sync
 uvicorn main:app --reload
 ```
 
-브라우저에서 `http://127.0.0.1:8000` 접속
+- Local: http://127.0.0.1:8000
+- Test: `pytest -q`
 
-앱 시작 시 DB 파일이 없으면 자동으로 생성되고, 예시 문서가 시드됩니다.
+## 배포 상태
 
-## API
+- 도메인: TBD (아직 미할당)
+- 현재는 배포 공간만 준비된 상태
 
-### 문서
+## 문서
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| `GET` | `/api/documents` | 문서 목록 조회 |
-| `POST` | `/api/documents` | 빈 문서 생성 |
-| `GET` | `/api/documents/{document_id}` | 블록 트리 포함 문서 조회 |
-| `PATCH` | `/api/documents/{document_id}` | 문서 제목 수정 |
-| `DELETE` | `/api/documents/{document_id}` | 문서 및 하위 블록 삭제 |
-| `POST` | `/api/documents/{document_id}/blocks` | 문서에 블록 추가 |
-
-### 블록
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| `PATCH` | `/api/blocks/{block_id}` | 블록 콘텐츠 수정 |
-| `PATCH` | `/api/blocks/{block_id}/position` | 블록 순서 변경 |
-| `PATCH` | `/api/blocks/{block_id}/type` | 블록 타입 변경 |
-| `DELETE` | `/api/blocks/{block_id}` | 블록 및 하위 블록 삭제 |
-
-## 프로젝트 구조
-
-```text
-main.py                              # FastAPI 앱 엔트리포인트
-app/
-  models/
-    blocks.py                        # Pydantic 블록 모델
-    orm.py                           # SQLAlchemy ORM (DocumentRow, BlockRow)
-  repositories/
-    sqlite_blocks.py                 # 데이터 액세스 레이어
-  routers/
-    documents.py                     # 문서 라우터
-    blocks.py                        # 블록 라우터
-  dependencies.py                    # FastAPI 의존성 주입
-templates/                           # Jinja2 HTML 템플릿
-static/
-  css/style.css
-  js/
-data/blocks.sqlite3                  # SQLite DB
-```
-
-## Conventions
-
-- Code: `docs/CODE_CONVENTION.md`
-- GitHub: `.github/GITHUB_CONVENTION.md`
-- Contribution Guide: `CONTRIBUTING.md`
+- 코드 컨벤션: docs/CODE_CONVENTION.md
+- 기여 가이드: CONTRIBUTING.md
+- GitHub 규칙: .github/GITHUB_CONVENTION.md
