@@ -78,8 +78,7 @@ export function create(block, { callbacks = {} } = {}) {
   colorBtn.className = "db-color-btn";
   colorBtn.title = "배경 색상 변경";
   colorBtn.textContent = "🎨";
-  colorBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
+  colorBtn.addEventListener("click", () => {
     toggleColorPalette();
   });
 
@@ -102,7 +101,7 @@ export function create(block, { callbacks = {} } = {}) {
       applyColor(wrap, c.id);
       colorPalette.querySelectorAll(".db-color-swatch").forEach((s) => s.classList.remove("is-active"));
       swatch.classList.add("is-active");
-      colorPalette.hidden = true;
+      closePalette();
       try {
         await apiPatchBlock(block.id, { color: c.id });
       } catch (err) {
@@ -112,16 +111,31 @@ export function create(block, { callbacks = {} } = {}) {
     colorPalette.appendChild(swatch);
   });
 
-  function toggleColorPalette() {
-    colorPalette.hidden = !colorPalette.hidden;
+  let removeOutsideListener = () => {};
+
+  function closePalette() {
+    colorPalette.hidden = true;
+    removeOutsideListener();
+    removeOutsideListener = () => {};
   }
 
-  // 팔레트 외부 클릭 시 닫기
-  document.addEventListener("click", (e) => {
-    if (!colorPalette.contains(e.target) && e.target !== colorBtn) {
-      colorPalette.hidden = true;
-    }
-  });
+  function openPalette() {
+    colorPalette.hidden = false;
+    // 이 클릭 이벤트가 버블링되어 즉시 닫히지 않도록 다음 틱에 등록
+    setTimeout(() => {
+      if (!colorPalette.isConnected) return;
+      function onOutside(e) {
+        if (!colorPalette.contains(e.target)) closePalette();
+      }
+      document.addEventListener("click", onOutside, true);
+      removeOutsideListener = () => document.removeEventListener("click", onOutside, true);
+    }, 0);
+  }
+
+  function toggleColorPalette() {
+    if (colorPalette.hidden) openPalette();
+    else closePalette();
+  }
 
   titleRow.appendChild(titleInput);
   titleRow.appendChild(colorBtn);
