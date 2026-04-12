@@ -193,7 +193,7 @@ async function initGallery() {
       const newBlock = await apiCreateBlock(activeDocId, type, parentBlockId, targetDocumentId);
       const afterWrapper = document.querySelector(`[data-block-id="${afterBlockId}"]`);
       if (afterWrapper) {
-        const newWrapper = renderBlock(newBlock, parentBlockId);
+        const newWrapper = renderBlock(newBlock, parentBlockId, { isNew: true });
         afterWrapper.after(newWrapper);
         const nextWrapper = newWrapper.nextElementSibling;
         if (nextWrapper?.dataset?.blockId) {
@@ -234,7 +234,7 @@ async function initGallery() {
         ? document.querySelector(`[data-block-id="${parentBlockId}"] [data-block-children]`)
         : root;
       if (containerEl) {
-        const newWrapper = renderBlock(newBlock, parentBlockId);
+        const newWrapper = renderBlock(newBlock, parentBlockId, { isNew: true });
         containerEl.appendChild(newWrapper);
         // For container blocks with an auto-created child, focus that child
         const firstChildWrapper = newWrapper.querySelector('[data-block-children] > .block-wrapper');

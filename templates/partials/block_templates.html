@@ -48,6 +48,39 @@
   </div>
 </template>
 
+<template id="url-embed-block-template">
+  <div class="notion-block notion-url-embed">
+    <!-- 생성 직후: URL 입력 폼 (isNew=true 일 때만 자동 노출) -->
+    <div class="url-embed-input-wrap" hidden>
+      <span class="url-embed-input-icon" aria-hidden="true">🔗</span>
+      <input type="text" class="url-embed-input" placeholder="URL을 붙여넣으세요...">
+    </div>
+    <!-- error: 에러 메시지 (입력 폼 위에 표시) -->
+    <div class="url-embed-error" hidden>
+      <span class="url-embed-error-msg"></span>
+      <button type="button" class="url-embed-retry-btn">재시도</button>
+    </div>
+    <!-- pending(기존 블록) / 빈 상태: 편집 유도 placeholder -->
+    <div class="url-embed-placeholder" hidden>
+      <span class="url-embed-placeholder-icon" aria-hidden="true">🔗</span>
+      <span class="url-embed-placeholder-text">URL 임베드</span>
+      <button type="button" class="url-embed-placeholder-edit-btn" aria-label="URL 입력">✎ URL 입력</button>
+    </div>
+    <!-- success: 북마크 카드 -->
+    <div class="url-embed-card-wrap" hidden>
+      <a class="url-embed-card" href="#" target="_blank" rel="noopener noreferrer">
+        <div class="url-embed-info">
+          <div class="url-embed-title"></div>
+          <div class="url-embed-description"></div>
+          <div class="url-embed-provider"></div>
+        </div>
+        <img class="url-embed-logo" alt="" loading="lazy" hidden>
+      </a>
+      <button type="button" class="url-embed-edit-btn" aria-label="URL 변경">✎</button>
+    </div>
+  </div>
+</template>
+
 <template id="callout-block-template">
   <div class="notion-block notion-callout">
     <span class="callout-emoji"></span>
