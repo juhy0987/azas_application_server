@@ -94,7 +94,7 @@ class UrlEmbedBlock(BlockBase):
   description: str = ""
   logo: str = ""        # resolved absolute URL: og:image / apple-touch-icon / favicon
   provider: str = ""    # hostname without "www." prefix
-  fetched_at: str = ""  # ISO-8601 UTC timestamp of last successful fetch
+  fetched_at: str = ""  # ISO-8601 UTC timestamp of last fetch attempt
   status: Literal["pending", "success", "error"] = "pending"
 
 

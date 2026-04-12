@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, field_validator
 
 from app.dependencies import get_repository
 from app.repositories.sqlite_blocks import SQLiteBlockRepository
