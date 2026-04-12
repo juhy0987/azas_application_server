@@ -15,6 +15,8 @@ class DocumentRow(Base):
   title: Mapped[str] = mapped_column(String, nullable=False)
   subtitle: Mapped[str] = mapped_column(String, nullable=False, default="")
   parent_id: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+  # db_row 블록이 생성한 페이지임을 표시 — 해당 db_row 블록의 id
+  source_block_id: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
 
   blocks: Mapped[list[BlockRow]] = relationship(
     back_populates="document",

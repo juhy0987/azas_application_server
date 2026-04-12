@@ -12,6 +12,10 @@ from app.models.blocks import (
   Block,
   BlockDocument,
   CalloutBlock,
+  ColumnSchema,
+  DatabaseBlock,
+  DbContext,
+  DbRowBlock,
   DividerBlock,
   PageBlock,
   QuoteBlock,
@@ -44,9 +48,13 @@ class SQLiteBlockRepository:
 
     Each root-level document has a ``children`` list; children are sorted
     alphabetically and may themselves contain further children.
+    Documents that are db_row pages (source_block_id set) are excluded from the
+    sidebar tree — they are accessed by opening the row from within the database block.
     """
     rows = self._session.execute(
-      select(DocumentRow).order_by(DocumentRow.title)
+      select(DocumentRow)
+      .where(DocumentRow.source_block_id.is_(None))
+      .order_by(DocumentRow.title)
     ).scalars().all()
 
     all_docs: list[dict] = [
@@ -89,7 +97,7 @@ class SQLiteBlockRepository:
     page_doc_ids = list({
       item["document_id"]
       for item in parsed_blocks
-      if item["type"] == "page" and "document_id" in item
+      if item["type"] in ("page", "db_row") and "document_id" in item
     })
     doc_titles: dict[str, str] = {}
     if page_doc_ids:
@@ -130,15 +138,100 @@ class SQLiteBlockRepository:
             "title": "" if is_broken else doc_titles.get(doc_id, ""),
             "is_broken_ref": is_broken,
           }))
+        elif item["type"] == "database":
+          nodes.append(self._build_database_block(item))
+        elif item["type"] == "db_row":
+          # db_row는 database 블록 내부에서만 등장 (build_database_block 처리)
+          # 최상위에 고아로 있는 경우 무시
+          pass
         else:
           nodes.append(self._block_adapter.validate_python(item))
       return nodes
+
+    # ── db_context: 이 페이지가 db_row 페이지인지 확인 ────────────────────────
+    db_context: DbContext | None = None
+    if doc_row.source_block_id:
+      db_context = self._build_db_context(doc_row.source_block_id)
 
     return BlockDocument(
       id=doc_row.id,
       title=doc_row.title,
       subtitle=doc_row.subtitle,
       blocks=build_nodes(None),
+      db_context=db_context,
+    )
+
+  def _build_database_block(self, item: dict[str, Any]) -> DatabaseBlock:
+    """DatabaseBlock을 조립: 자식 db_row 블록들을 rows로 채워 반환."""
+    db_block_id = item["id"]
+    schema_raw = item.get("schema", [])
+    schema = [ColumnSchema.model_validate(c) for c in schema_raw]
+
+    row_blocks = self._session.execute(
+      select(BlockRow)
+      .where(
+        BlockRow.parent_block_id == db_block_id,
+        BlockRow.type == "db_row",
+      )
+      .order_by(BlockRow.position.asc())
+    ).scalars().all()
+
+    # 행 문서 제목 일괄 조회
+    row_doc_ids = [json.loads(r.content_json).get("document_id", "") for r in row_blocks]
+    valid_ids = [did for did in row_doc_ids if did]
+    title_map: dict[str, str] = {}
+    if valid_ids:
+      title_rows = self._session.execute(
+        select(DocumentRow.id, DocumentRow.title).where(DocumentRow.id.in_(valid_ids))
+      ).all()
+      title_map = {r.id: r.title for r in title_rows}
+
+    rows: list[DbRowBlock] = []
+    for rb in row_blocks:
+      content = json.loads(rb.content_json)
+      doc_id = content.get("document_id", "")
+      is_broken = bool(doc_id) and doc_id not in title_map
+      rows.append(DbRowBlock.model_validate({
+        "id": rb.id,
+        "type": "db_row",
+        "document_id": doc_id,
+        "title": "" if is_broken else title_map.get(doc_id, ""),
+        "is_reference": False,
+        "is_broken_ref": is_broken,
+        "properties": content.get("properties", {}),
+      }))
+
+    return DatabaseBlock.model_validate({
+      **item,
+      "schema": schema,
+      "rows": rows,
+    })
+
+  def _build_db_context(self, db_row_block_id: str) -> DbContext | None:
+    """db_row 블록 id로 DbContext를 조립. 블록이 없으면 None 반환."""
+    row_block = self._session.get(BlockRow, db_row_block_id)
+    if row_block is None or row_block.type != "db_row":
+      return None
+
+    content = json.loads(row_block.content_json)
+    properties = content.get("properties", {})
+
+    # 부모 DatabaseBlock 조회
+    db_block_id = row_block.parent_block_id
+    if db_block_id is None:
+      return None
+    db_block = self._session.get(BlockRow, db_block_id)
+    if db_block is None or db_block.type != "database":
+      return None
+
+    db_content = json.loads(db_block.content_json)
+    schema = [ColumnSchema.model_validate(c) for c in db_content.get("schema", [])]
+
+    return DbContext(
+      block_id=db_row_block_id,
+      db_block_id=db_block_id,
+      schema=schema,
+      properties=properties,
     )
 
   def create_document(self) -> dict:
@@ -159,7 +252,7 @@ class SQLiteBlockRepository:
     self._session.commit()
     return data
 
-  def _build_child_document_row(self, parent_id: str) -> dict:
+  def _build_child_document_row(self, parent_id: str, source_block_id: str | None = None) -> dict:
     """Add a child DocumentRow to the session without committing.
 
     Callers are responsible for the commit so that the operation can be
@@ -167,7 +260,13 @@ class SQLiteBlockRepository:
     """
     doc_id = str(uuid.uuid4())
     title = "새 문서"
-    self._session.add(DocumentRow(id=doc_id, title=title, subtitle="", parent_id=parent_id))
+    self._session.add(DocumentRow(
+      id=doc_id,
+      title=title,
+      subtitle="",
+      parent_id=parent_id,
+      source_block_id=source_block_id,
+    ))
     return {"id": doc_id, "title": title, "subtitle": "", "parent_id": parent_id, "children": []}
 
   def _is_descendant(self, ancestor_id: str, candidate_id: str) -> bool:
@@ -249,10 +348,11 @@ class SQLiteBlockRepository:
       if parent_exists is None:
         return None
 
+    child_doc: dict[str, Any] | None = None
+
     # ── Page block: link to existing or auto-create a child document ─────────
     if block_type == "page":
       if target_document_id is not None:
-        # Reference an existing document without changing its parent.
         if self._session.get(DocumentRow, target_document_id) is None:
           return None
         default_content: dict[str, Any] = {
@@ -261,10 +361,59 @@ class SQLiteBlockRepository:
         }
         child_doc = None
       else:
-        # Use _build_child_document_row (no commit) so both the new document and
-        # the page block are committed together below, keeping the DB consistent.
         child_doc = self._build_child_document_row(document_id)
         default_content = {"document_id": child_doc["id"], "is_reference": False}
+
+    # ── Database block ────────────────────────────────────────────────────────
+    elif block_type == "database":
+      default_content = {"title": "", "schema": []}
+
+    # ── db_row block: always creates a child document ─────────────────────────
+    elif block_type == "db_row":
+      if parent_block_id is None:
+        return None  # db_row는 반드시 database 블록의 자식이어야 함
+      # db_row 블록 id를 미리 생성해 두어야 source_block_id에 연결할 수 있음
+      block_id = str(uuid.uuid4())
+      child_doc = self._build_child_document_row(document_id, source_block_id=block_id)
+      default_content = {
+        "document_id": child_doc["id"],
+        "is_reference": False,
+        "properties": {},
+      }
+      # 나머지 로직(position 계산 / BlockRow 추가)을 아래에서 계속 처리하기 위해
+      # block_id를 미리 확정한다
+      parent_filter = (
+        BlockRow.parent_block_id.is_(None)
+        if parent_block_id is None
+        else BlockRow.parent_block_id == parent_block_id
+      )
+      max_pos = self._session.execute(
+        select(func.coalesce(func.max(BlockRow.position), 0))
+        .where(BlockRow.document_id == document_id, parent_filter)
+      ).scalar_one()
+      self._session.add(BlockRow(
+        id=block_id,
+        document_id=document_id,
+        parent_block_id=parent_block_id,
+        type=block_type,
+        position=max_pos + 1,
+        content_json=json.dumps(default_content, ensure_ascii=False),
+      ))
+      self._session.commit()
+
+      doc_title = child_doc["title"]
+      result: dict[str, Any] = {
+        "id": block_id,
+        "type": "db_row",
+        "document_id": child_doc["id"],
+        "title": doc_title,
+        "is_reference": False,
+        "is_broken_ref": False,
+        "properties": {},
+        "child_document": child_doc,
+      }
+      return result
+
     else:
       match block_type:
         case "text":
@@ -320,7 +469,7 @@ class SQLiteBlockRepository:
 
     self._session.commit()
 
-    result: dict[str, Any] = {"id": block_id, "type": block_type, **default_content}
+    result = {"id": block_id, "type": block_type, **default_content}
     if block_type == "page":
       if child_doc is not None:
         result["title"] = child_doc["title"]
@@ -337,8 +486,8 @@ class SQLiteBlockRepository:
   def delete_block(self, block_id: str) -> bool:
     """Delete a block and all its descendants. Compacts sibling positions after deletion.
 
-    For owned page blocks (is_reference=False) the referenced document is promoted
-    to root (parent_id cleared) so it is not orphaned.
+    For owned page/db_row blocks the referenced document is promoted to root
+    so it is not orphaned.
     Reference page blocks (is_reference=True) are removed without touching the
     target document's parent hierarchy.
     """
@@ -346,18 +495,34 @@ class SQLiteBlockRepository:
     if block_row is None:
       return False
 
-    # Promote referenced document to root only when this page block owns it.
-    # Reference blocks (is_reference=True) merely link to an existing document
-    # whose parent hierarchy must not be disturbed.
-    if block_row.type == "page":
+    # Promote referenced document to root only when this block owns it.
+    if block_row.type in ("page", "db_row"):
       content = json.loads(block_row.content_json)
       ref_doc_id = content.get("document_id")
       if ref_doc_id and not content.get("is_reference", False):
         self._session.execute(
           update(DocumentRow)
           .where(DocumentRow.id == ref_doc_id)
-          .values(parent_id=None)
+          .values(parent_id=None, source_block_id=None)
         )
+
+    # database 블록 삭제: 모든 db_row 자식의 문서를 root로 승격
+    if block_row.type == "database":
+      row_blocks = self._session.execute(
+        select(BlockRow).where(
+          BlockRow.parent_block_id == block_id,
+          BlockRow.type == "db_row",
+        )
+      ).scalars().all()
+      for rb in row_blocks:
+        content = json.loads(rb.content_json)
+        ref_doc_id = content.get("document_id")
+        if ref_doc_id:
+          self._session.execute(
+            update(DocumentRow)
+            .where(DocumentRow.id == ref_doc_id)
+            .values(parent_id=None, source_block_id=None)
+          )
 
     document_id = block_row.document_id
     parent_block_id = block_row.parent_block_id
@@ -501,6 +666,77 @@ class SQLiteBlockRepository:
 
     for i, sid in enumerate(sibling_ids, start=1):
       self._session.execute(update(BlockRow).where(BlockRow.id == sid).values(position=i))
+    self._session.commit()
+    return True
+
+  # ── Database-specific operations ───────────────────────────────────────────
+
+  def update_db_row_properties(self, block_id: str, properties: dict[str, Any]) -> bool:
+    """Replace all properties on a db_row block. Returns False if not found."""
+    block_row = self._session.get(BlockRow, block_id)
+    if block_row is None or block_row.type != "db_row":
+      return False
+    content = json.loads(block_row.content_json)
+    content["properties"] = properties
+    block_row.content_json = json.dumps(content, ensure_ascii=False)
+    self._session.commit()
+    return True
+
+  def add_db_column(self, db_block_id: str, column: dict[str, Any]) -> bool:
+    """Append a new column to the database block schema. Returns False if not found."""
+    block_row = self._session.get(BlockRow, db_block_id)
+    if block_row is None or block_row.type != "database":
+      return False
+    content = json.loads(block_row.content_json)
+    schema: list[dict] = content.get("schema", [])
+    schema.append(column)
+    content["schema"] = schema
+    block_row.content_json = json.dumps(content, ensure_ascii=False)
+    self._session.commit()
+    return True
+
+  def update_db_column(self, db_block_id: str, col_id: str, patch: dict[str, Any]) -> bool:
+    """Update a column's name/type/options in the schema. Returns False if not found."""
+    block_row = self._session.get(BlockRow, db_block_id)
+    if block_row is None or block_row.type != "database":
+      return False
+    content = json.loads(block_row.content_json)
+    schema: list[dict] = content.get("schema", [])
+    col = next((c for c in schema if c["id"] == col_id), None)
+    if col is None:
+      return False
+    col.update({k: v for k, v in patch.items() if v is not None})
+    block_row.content_json = json.dumps(content, ensure_ascii=False)
+    self._session.commit()
+    return True
+
+  def remove_db_column(self, db_block_id: str, col_id: str) -> bool:
+    """Remove a column from the database schema (and its values from all rows)."""
+    block_row = self._session.get(BlockRow, db_block_id)
+    if block_row is None or block_row.type != "database":
+      return False
+    content = json.loads(block_row.content_json)
+    schema: list[dict] = content.get("schema", [])
+    new_schema = [c for c in schema if c["id"] != col_id]
+    if len(new_schema) == len(schema):
+      return False  # column not found
+    content["schema"] = new_schema
+    block_row.content_json = json.dumps(content, ensure_ascii=False)
+
+    # Remove property values for this column from all db_row children
+    row_blocks = self._session.execute(
+      select(BlockRow).where(
+        BlockRow.parent_block_id == db_block_id,
+        BlockRow.type == "db_row",
+      )
+    ).scalars().all()
+    for rb in row_blocks:
+      row_content = json.loads(rb.content_json)
+      props: dict = row_content.get("properties", {})
+      props.pop(col_id, None)
+      row_content["properties"] = props
+      rb.content_json = json.dumps(row_content, ensure_ascii=False)
+
     self._session.commit()
     return True
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -89,10 +89,66 @@ class PageBlock(BlockBase):
   is_broken_ref: bool = False  # True when the target document no longer exists
 
 
+# ── Database block types ───────────────────────────────────────────────────────
+
+class ColumnSchema(BaseModel):
+  """Schema definition for a single database column."""
+
+  id: str
+  name: str
+  type: Literal["text", "number", "select", "checkbox"] = "text"
+  options: list[str] = Field(default_factory=list)  # for select type
+
+
+class DbRowBlock(PageBlock):
+  """Database row block — extends PageBlock so each row is also a page.
+
+  Properties map column IDs to cell values.
+  """
+
+  type: Literal["db_row"]
+  properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class DatabaseBlock(BlockBase):
+  """Database block — renders as a table whose rows are pages."""
+
+  type: Literal["database"]
+  title: str = ""
+  schema: list[ColumnSchema] = Field(default_factory=list)
+  rows: list[DbRowBlock] = Field(default_factory=list)  # populated at query time
+
+
+# ── Discriminated union of all block types ─────────────────────────────────────
+
 Block = Annotated[
-  TextBlock | ImageBlock | ToggleBlock | QuoteBlock | CodeBlock | CalloutBlock | DividerBlock | PageBlock,
+  TextBlock
+  | ImageBlock
+  | ToggleBlock
+  | QuoteBlock
+  | CodeBlock
+  | CalloutBlock
+  | DividerBlock
+  | PageBlock
+  | DbRowBlock
+  | DatabaseBlock,
   Field(discriminator="type"),
 ]
+
+
+# ── Database row page context ──────────────────────────────────────────────────
+
+class DbContext(BaseModel):
+  """Attached to a BlockDocument when that document is a database row page.
+
+  Provides the schema from the parent DatabaseBlock so the page can render
+  editable property fields below the title.
+  """
+
+  block_id: str       # the db_row block id
+  db_block_id: str    # the parent DatabaseBlock id
+  schema: list[ColumnSchema]
+  properties: dict[str, Any]
 
 
 class BlockDocument(BaseModel):
@@ -102,3 +158,4 @@ class BlockDocument(BaseModel):
   title: str
   subtitle: str = ""
   blocks: list[Block]
+  db_context: DbContext | None = None
