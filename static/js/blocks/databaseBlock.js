@@ -121,10 +121,12 @@ export function create(block, { callbacks = {} } = {}) {
 
   function openPalette() {
     colorPalette.hidden = false;
-    // 이 클릭 이벤트가 버블링되어 즉시 닫히지 않도록 다음 틱에 등록
+    // 다음 틱에 등록: 팔레트를 연 클릭 자체가 즉시 닫기를 트리거하지 않도록
     setTimeout(() => {
       if (!colorPalette.isConnected) return;
       function onOutside(e) {
+        // colorBtn 클릭은 여기서 처리하지 않음 — 버튼 핸들러가 toggle을 담당
+        if (colorBtn.contains(e.target)) return;
         if (!colorPalette.contains(e.target)) closePalette();
       }
       document.addEventListener("click", onOutside, true);
