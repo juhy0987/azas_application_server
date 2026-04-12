@@ -48,6 +48,31 @@
   </div>
 </template>
 
+<template id="url-embed-block-template">
+  <div class="notion-block notion-url-embed">
+    <!-- pending / error: URL 입력 폼 -->
+    <div class="url-embed-input-wrap">
+      <span class="url-embed-input-icon" aria-hidden="true">🔗</span>
+      <input type="text" class="url-embed-input" placeholder="URL을 붙여넣으세요...">
+    </div>
+    <!-- error: 에러 메시지 -->
+    <div class="url-embed-error" hidden>
+      <span class="url-embed-error-msg"></span>
+      <button type="button" class="url-embed-retry-btn">재시도</button>
+    </div>
+    <!-- success: 북마크 카드 -->
+    <a class="url-embed-card" href="#" target="_blank" rel="noopener noreferrer" hidden>
+      <div class="url-embed-info">
+        <div class="url-embed-title"></div>
+        <div class="url-embed-description"></div>
+        <div class="url-embed-provider"></div>
+      </div>
+      <img class="url-embed-logo" alt="" loading="lazy" hidden>
+      <button type="button" class="url-embed-edit-btn" aria-label="URL 변경">✎</button>
+    </a>
+  </div>
+</template>
+
 <template id="callout-block-template">
   <div class="notion-block notion-callout">
     <span class="callout-emoji"></span>
