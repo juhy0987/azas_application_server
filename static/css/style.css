@@ -1910,6 +1910,15 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   overflow: hidden;
 }
 
+/* display:flex overrides the UA [hidden]{display:none} rule,
+   so we re-declare it with higher specificity. */
+.url-embed-input-wrap[hidden],
+.url-embed-placeholder[hidden],
+.url-embed-error[hidden],
+.url-embed-card[hidden] {
+  display: none;
+}
+
 /* ── 편집 유도 placeholder (기존 블록 / 타입 변환 후) ───────────────────── */
 
 .url-embed-placeholder {
