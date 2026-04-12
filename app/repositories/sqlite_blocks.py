@@ -388,13 +388,16 @@ class SQLiteBlockRepository:
       return None
 
     if parent_block_id is not None:
-      parent_exists = self._session.execute(
-        select(BlockRow.id).where(
+      parent_block = self._session.execute(
+        select(BlockRow.id, BlockRow.type).where(
           BlockRow.id == parent_block_id,
           BlockRow.document_id == document_id,
         )
-      ).scalar_one_or_none()
-      if parent_exists is None:
+      ).one_or_none()
+      if parent_block is None:
+        return None
+      # db_row는 반드시 database 블록 아래에만 생성 가능
+      if block_type == "db_row" and parent_block.type != "database":
         return None
 
     child_doc: dict[str, Any] | None = None

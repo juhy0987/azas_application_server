@@ -4,7 +4,7 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.dependencies import get_repository
 from app.repositories.sqlite_blocks import SQLiteBlockRepository
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/database", tags=["database"])
 class ColumnCreate(BaseModel):
   name: str
   type: Literal["text", "number", "select", "checkbox"] = "text"
-  options: list[str] = []
+  options: list[str] = Field(default_factory=list)
 
 
 class ColumnUpdate(BaseModel):
@@ -33,7 +33,7 @@ def add_column(
   repo: SQLiteBlockRepository = Depends(get_repository),
 ) -> dict:
   """Add a new column to a database block's schema."""
-  col_id = str(uuid.uuid4())[:8]
+  col_id = str(uuid.uuid4())
   column: dict[str, Any] = {
     "id": col_id,
     "name": body.name,
