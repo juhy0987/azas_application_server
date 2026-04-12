@@ -258,6 +258,8 @@ async function initGallery() {
       }
 
       renderDocument(payload);
+      // 페이지 전환 시 본문 최상단에서 시작 (#33)
+      window.scrollTo(0, 0);
       renderDbProperties(payload.db_context);
       if (focusBlockId) {
         const targetWrapper = root.querySelector(`[data-block-id="${focusBlockId}"]`);
