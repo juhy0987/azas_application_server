@@ -93,8 +93,12 @@ export function create(block, { isNew = false } = {}) {
     placeholder.hidden    = true;
   }
 
+  let isFetching = false;
+
   function setLoading(isLoading) {
+    isFetching        = isLoading;
     input.disabled    = isLoading;
+    retryBtn.disabled = isLoading;
     input.placeholder = isLoading ? "가져오는 중..." : "URL을 붙여넣으세요...";
   }
 
@@ -113,7 +117,7 @@ export function create(block, { isNew = false } = {}) {
   // ── URL fetch ─────────────────────────────────────────────────────────────
 
   async function fetchMeta(url) {
-    if (!url) return;
+    if (!url || isFetching) return;
     setLoading(true);
     try {
       const meta = await apiFetchUrlEmbed(url, block.id);
@@ -124,7 +128,7 @@ export function create(block, { isNew = false } = {}) {
         showError(meta.error);
       }
     } catch (err) {
-      showError("서버 오류가 발생했습니다.");
+      showError(err.message || "서버 오류가 발생했습니다.");
       console.error("URL embed fetch 실패:", err);
     } finally {
       setLoading(false);

@@ -86,7 +86,10 @@ export async function apiFetchUrlEmbed(url, blockId = null) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error('Failed to fetch url embed');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? 'URL 메타데이터를 가져올 수 없습니다.');
+  }
   return res.json();
 }
 
