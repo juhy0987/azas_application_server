@@ -67,15 +67,17 @@
       <button type="button" class="url-embed-placeholder-edit-btn" aria-label="URL 입력">✎ URL 입력</button>
     </div>
     <!-- success: 북마크 카드 -->
-    <a class="url-embed-card" href="#" target="_blank" rel="noopener noreferrer" hidden>
-      <div class="url-embed-info">
-        <div class="url-embed-title"></div>
-        <div class="url-embed-description"></div>
-        <div class="url-embed-provider"></div>
-      </div>
-      <img class="url-embed-logo" alt="" loading="lazy" hidden>
+    <div class="url-embed-card-wrap" hidden>
+      <a class="url-embed-card" href="#" target="_blank" rel="noopener noreferrer">
+        <div class="url-embed-info">
+          <div class="url-embed-title"></div>
+          <div class="url-embed-description"></div>
+          <div class="url-embed-provider"></div>
+        </div>
+        <img class="url-embed-logo" alt="" loading="lazy" hidden>
+      </a>
       <button type="button" class="url-embed-edit-btn" aria-label="URL 변경">✎</button>
-    </a>
+    </div>
   </div>
 </template>
 

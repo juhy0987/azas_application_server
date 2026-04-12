@@ -30,7 +30,8 @@ export function create(block, { isNew = false } = {}) {
 
   const inputWrap       = node.querySelector(".url-embed-input-wrap");
   const input           = node.querySelector(".url-embed-input");
-  const card            = node.querySelector(".url-embed-card");
+  const cardWrap        = node.querySelector(".url-embed-card-wrap");
+  const cardLink        = node.querySelector(".url-embed-card");
   const titleEl         = node.querySelector(".url-embed-title");
   const descEl          = node.querySelector(".url-embed-description");
   const providerEl      = node.querySelector(".url-embed-provider");
@@ -48,7 +49,7 @@ export function create(block, { isNew = false } = {}) {
   function showInputMode() {
     input.value        = block.url || "";
     inputWrap.hidden   = false;
-    card.hidden        = true;
+    cardWrap.hidden    = true;
     placeholder.hidden = true;
     errorWrap.hidden   = true;
     input.focus();
@@ -58,7 +59,7 @@ export function create(block, { isNew = false } = {}) {
   function showPlaceholder() {
     placeholder.hidden  = false;
     inputWrap.hidden    = true;
-    card.hidden         = true;
+    cardWrap.hidden     = true;
     errorWrap.hidden    = true;
   }
 
@@ -67,7 +68,7 @@ export function create(block, { isNew = false } = {}) {
     titleEl.textContent    = block.title       || block.url || "제목 없음";
     descEl.textContent     = block.description || "";
     providerEl.textContent = block.provider    || "";
-    card.href              = block.url;
+    cardLink.href          = block.url;
 
     if (block.logo) {
       logoEl.src    = block.logo;
@@ -76,11 +77,11 @@ export function create(block, { isNew = false } = {}) {
       logoEl.hidden = true;
     }
 
-    descEl.hidden     = !block.description;
-    card.hidden       = false;
-    inputWrap.hidden  = true;
+    descEl.hidden      = !block.description;
+    cardWrap.hidden    = false;
+    inputWrap.hidden   = true;
     placeholder.hidden = true;
-    errorWrap.hidden  = true;
+    errorWrap.hidden   = true;
   }
 
   /** 입력창 아래에 에러 메시지를 표시한다. 입력창은 그대로 열려 있다. */
@@ -88,7 +89,7 @@ export function create(block, { isNew = false } = {}) {
     errorMsg.textContent  = msg || "메타데이터를 가져올 수 없습니다.";
     errorWrap.hidden      = false;
     inputWrap.hidden      = false;
-    card.hidden           = true;
+    cardWrap.hidden       = true;
     placeholder.hidden    = true;
   }
 

@@ -1915,7 +1915,7 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 .url-embed-input-wrap[hidden],
 .url-embed-placeholder[hidden],
 .url-embed-error[hidden],
-.url-embed-card[hidden] {
+.url-embed-card-wrap[hidden] {
   display: none;
 }
 
@@ -2021,6 +2021,11 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 
 /* ── 북마크 카드 ──────────────────────────────────────────────────────────── */
 
+/* <a>와 편집 버튼을 감싸는 래퍼 — 편집 버튼 위치 기준점이자 호버 감지 대상 */
+.url-embed-card-wrap {
+  position: relative;
+}
+
 .url-embed-card {
   display: flex;
   align-items: center;
@@ -2032,11 +2037,10 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, box-shadow 0.15s;
-  position: relative;
   overflow: hidden;
 }
 
-.url-embed-card:hover {
+.url-embed-card-wrap:hover .url-embed-card {
   border-color: var(--accent);
   box-shadow: 0 2px 8px var(--shadow);
 }
@@ -2100,7 +2104,10 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   font-family: inherit;
 }
 
-.url-embed-card:hover .url-embed-edit-btn {
+/* 마우스 호버 또는 키보드 포커스(접근성) 시 편집 버튼 노출
+   Ref: https://developer.mozilla.org/en-US/docs/Web/CSS/:focus-within */
+.url-embed-card-wrap:hover .url-embed-edit-btn,
+.url-embed-card-wrap:focus-within .url-embed-edit-btn {
   display: block;
 }
 
