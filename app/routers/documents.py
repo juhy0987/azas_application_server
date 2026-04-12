@@ -68,6 +68,8 @@ def update_document_title(
 class BlockCreate(BaseModel):
   type: Literal["text", "image", "toggle", "quote", "code", "callout", "divider", "page"]
   parent_block_id: str | None = None
+  # Only used when type="page": link to an existing document instead of creating a new one
+  target_document_id: str | None = None
 
 
 @router.post("/{document_id}/blocks", status_code=201)
@@ -78,10 +80,14 @@ def create_block(
 ) -> dict:
   """Append a new block to a document.
 
-  For ``type=page`` a new child document is automatically created and returned
-  inside the ``child_document`` field of the response.
+  For ``type=page`` a new child document is automatically created unless
+  ``target_document_id`` is provided, in which case the block links to the
+  existing document.  A newly created child document is returned inside the
+  ``child_document`` field of the response.
   """
-  result = repo.create_block(document_id, body.type, body.parent_block_id)
+  if body.target_document_id is not None and body.type != "page":
+    raise HTTPException(status_code=422, detail="target_document_id is only valid for page blocks")
+  result = repo.create_block(document_id, body.type, body.parent_block_id, body.target_document_id)
   if result is None:
     raise HTTPException(status_code=404, detail="Document not found")
   return result
