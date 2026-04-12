@@ -20,6 +20,11 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
   const existingBtn = listItem.querySelector(':scope > .document-row > .document-item');
   const menuBtn = listItem.querySelector(':scope > .document-row > .document-menu-btn');
 
+  // 기존 버튼의 클래스 목록과 아이콘 텍스트를 캡처해 복원 시 재사용
+  const savedClasses = Array.from(existingBtn.classList);
+  const iconEl = existingBtn.querySelector('.document-item-icon');
+  const savedIconText = iconEl ? iconEl.textContent : null;
+
   const input = document.createElement('input');
   input.type = 'text';
   input.setAttribute('size', '1');
@@ -40,8 +45,22 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'document-item is-active';
-    btn.textContent = title;
+    btn.className = savedClasses.join(' ');
+    btn.classList.add('is-active');
+
+    if (savedIconText !== null) {
+      const icon = document.createElement('span');
+      icon.className = 'document-item-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = savedIconText;
+      btn.appendChild(icon);
+    }
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'document-item-title';
+    titleSpan.textContent = title;
+    btn.appendChild(titleSpan);
+
     btn.addEventListener('click', () => {
       closeAllMenus(list);
       setActiveItem(list, listItem);
@@ -59,7 +78,11 @@ export function enterInlineEdit(listItem, docId, initialTitle, list, onSelect, o
       .then(() => { if (onTitleSaved) onTitleSaved(docId, newTitle); })
       .catch((err) => {
         console.error(err);
-        if (btn) btn.textContent = initialTitle;
+        if (btn) {
+          const ts = btn.querySelector('.document-item-title');
+          if (ts) ts.textContent = initialTitle;
+          else btn.textContent = initialTitle;
+        }
       });
   }
 

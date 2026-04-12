@@ -79,8 +79,7 @@ async function initGallery() {
     if (!item) return;
     const btn = item.querySelector(':scope > .document-row > .document-item');
     if (!btn) return;
-    // db_row 아이템은 아이콘 span + 제목 span 구조이므로 제목 span만 교체
-    const titleSpan = btn.querySelector('span:last-child');
+    const titleSpan = btn.querySelector('.document-item-title');
     if (titleSpan) titleSpan.textContent = newTitle;
     else btn.textContent = newTitle;
   }
@@ -314,6 +313,7 @@ async function initGallery() {
         cb.addEventListener('change', async () => {
           ctx.properties[col.id] = cb.checked;
           await _saveDbProperties(ctx);
+          _syncDbCellInParent(ctx.block_id, col.id, cb.checked);
         });
         valueWrap.appendChild(cb);
       } else {
@@ -353,10 +353,14 @@ async function initGallery() {
   }
 
   function _syncDbCellInParent(rowBlockId, colId, newValue) {
-    const cellInput = document.querySelector(
-      `.db-row[data-row-block-id="${rowBlockId}"] [data-col-id="${colId}"] .db-cell-input`
+    const cell = document.querySelector(
+      `.db-row[data-row-block-id="${rowBlockId}"] [data-col-id="${colId}"]`
     );
-    if (cellInput) cellInput.value = newValue;
+    if (!cell) return;
+    const textInput = cell.querySelector('.db-cell-input');
+    if (textInput) { textInput.value = newValue; return; }
+    const checkbox = cell.querySelector('.db-cell-checkbox');
+    if (checkbox) checkbox.checked = newValue === true || newValue === 'true';
   }
 
   function showEmptyState() {
