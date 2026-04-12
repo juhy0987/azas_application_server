@@ -78,6 +78,18 @@ export async function apiUploadImage(file) {
   return res.json();
 }
 
+export async function apiFetchUrlEmbed(url, blockId = null) {
+  const body = { url };
+  if (blockId !== null) body.block_id = blockId;
+  const res = await fetch('/api/url-embed/fetch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('Failed to fetch url embed');
+  return res.json();
+}
+
 export async function apiMoveBlock(blockId, beforeBlockId) {
   const res = await fetch(`/api/blocks/${blockId}/position`, {
     method: 'PATCH',
