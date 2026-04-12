@@ -135,7 +135,7 @@ async function initGallery() {
   };
 
   callbacks.reloadDocument = () => {
-    if (activeDocId) loadDocument(activeDocId);
+    if (activeDocId) loadDocument(activeDocId, { pushHistory: false });
   };
 
   callbacks.reloadSidebar = reloadSidebar;
@@ -165,7 +165,7 @@ async function initGallery() {
   };
 
   // ── Document loader ───────────────────────────────────────────────────────
-  async function loadDocument(documentId, { focusBlockId = null } = {}) {
+  async function loadDocument(documentId, { focusBlockId = null, pushHistory = true } = {}) {
     activeDocId = documentId;
 
     /**
@@ -253,13 +253,19 @@ async function initGallery() {
       const lastBlock = rootBlocks[rootBlocks.length - 1];
       if (!lastBlock || lastBlock.type !== 'text') {
         const newBlock = await apiCreateBlock(activeDocId, 'text');
-        await loadDocument(documentId, { focusBlockId: focusBlockId ?? newBlock.id });
+        await loadDocument(documentId, { focusBlockId: focusBlockId ?? newBlock.id, pushHistory });
         return;
       }
 
       renderDocument(payload);
       // 페이지 전환 시 본문 최상단에서 시작 (#33)
       window.scrollTo(0, 0);
+      if (pushHistory) {
+        const state = { docId: documentId };
+        history.state?.docId === undefined
+          ? history.replaceState(state, '')
+          : history.pushState(state, '');
+      }
       renderDbProperties(payload.db_context);
       if (focusBlockId) {
         const targetWrapper = root.querySelector(`[data-block-id="${focusBlockId}"]`);
@@ -409,6 +415,18 @@ async function initGallery() {
     document.getElementById('sidebar-tab'),
     document.getElementById('sidebar-panel'),
   );
+
+  // ── 브라우저 뒤로/앞으로: 히스토리 상태에서 문서 복원 (#33) ───────────────
+  window.addEventListener('popstate', (e) => {
+    const docId = e.state?.docId;
+    if (!docId) return;
+    const targetItem = list.querySelector(`li[data-id="${docId}"]`);
+    if (targetItem) {
+      closeAllMenus(list);
+      setActiveItem(list, targetItem);
+    }
+    loadDocument(docId, { pushHistory: false });
+  });
 
   document.addEventListener('click', () => {
     closeAllMenus(list);
