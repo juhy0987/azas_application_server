@@ -19,6 +19,12 @@ function flattenDocs(docs, depth = 0) {
   return result;
 }
 
+// Module-level reference to the active modal's close function.
+// Ensures at most one modal is open at a time and that any previous Promise
+// always resolves (preventing leaks when openPagePickerModal is called again
+// before the previous modal is dismissed).
+let _activeClose = null;
+
 /**
  * Open the page picker modal anchored below anchorEl.
  * @param {HTMLElement} anchorEl
@@ -26,6 +32,12 @@ function flattenDocs(docs, depth = 0) {
  * @returns {Promise<{action:'new'}|{action:'reference', documentId:string}|null>}
  */
 export function openPagePickerModal(anchorEl, excludeDocumentId = null) {
+  // Resolve and remove any previously open modal so its Promise never hangs.
+  if (_activeClose) {
+    _activeClose(null);
+    _activeClose = null;
+  }
+
   return new Promise((resolve) => {
     document.querySelectorAll('.page-picker-modal').forEach((m) => m.remove());
 
@@ -37,10 +49,13 @@ export function openPagePickerModal(anchorEl, excludeDocumentId = null) {
     let removeOutsideListener = () => {};
 
     function close(result) {
+      _activeClose = null;
       modal.remove();
       removeOutsideListener();
       resolve(result ?? null);
     }
+
+    _activeClose = close;
 
     // ── 새 페이지 생성 button ─────────────────────────────────────────────────
     const newBtn = document.createElement('button');
