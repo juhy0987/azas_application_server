@@ -2959,8 +2959,9 @@ body.viewer-mode .db-cell-checkbox {
   opacity: 0.7;
 }
 
-/* 이미지 블록 액션 오버레이 숨김 */
-body.viewer-mode .image-actions {
+/* 이미지 블록: 더보기(변경/삭제) 숨김, 크게 보기는 유지 */
+body.viewer-mode .image-more-btn,
+body.viewer-mode .image-more-menu {
   display: none !important;
 }
 
