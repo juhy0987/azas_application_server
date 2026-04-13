@@ -2945,6 +2945,11 @@ body.viewer-mode #page-title {
   cursor: default !important;
 }
 
+/* 코드 블록 언어 선택 비활성화 */
+body.viewer-mode .code-language-select {
+  pointer-events: none;
+}
+
 /* DB 속성 입력 비활성화 */
 body.viewer-mode .db-prop-input,
 body.viewer-mode .db-prop-checkbox,
