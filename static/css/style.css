@@ -842,6 +842,41 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   color: #abb2bf;
 }
 
+/* ── Mermaid preview panel ───────────────────────────────────────────────── */
+
+/* mermaid 모드일 때 소스 에디터의 배경을 약간 어둡게 유지 */
+.notion-code.is-mermaid .code-body {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* 다이어그램 미리보기 영역: 흰 배경에 중앙 정렬 */
+.mermaid-preview {
+  padding: 1.25rem 1rem;
+  background: #fff;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 문법 오류 표시 영역 */
+.mermaid-error {
+  padding: 0.6rem 1rem;
+  background: rgba(220, 53, 69, 0.08);
+  border-top: 1px solid rgba(220, 53, 69, 0.25);
+  color: #e55563;
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Callout block ───────────────────────────────────────────────────────── */
 
 .notion-callout {
