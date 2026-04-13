@@ -97,6 +97,12 @@ function positionMenu(menuEl, anchorEl) {
 
 // ── 핵심 공개 API ─────────────────────────────────────────────────────────────
 
+// 활성 메뉴의 close 함수를 보관하는 레지스트리.
+// closeAllInlineSlashMenus() 가 DOM 만 제거하면 anchorEl 의 keydown 리스너와
+// document mousedown 리스너가 정리되지 않아 이벤트 핸들러가 누적된다.
+// 각 메뉴 인스턴스의 close() 를 직접 호출해 완전한 cleanup 을 보장한다.
+const _activeCleanups = new Set();
+
 /**
  * 인라인 슬래시 커맨드 메뉴를 연다.
  * 메뉴가 이미 열려 있으면 기존 것을 닫고 새로 연다.
@@ -106,11 +112,15 @@ function positionMenu(menuEl, anchorEl) {
  * @param {string}      currentBlockType - 현재 블록 타입 (heading level 분기에 사용)
  * @param {object}      opts
  * @param {Function}   [opts.reloadDocument] - 블록 전환 완료 후 문서 재렌더링 콜백
+ * @param {Function}   [opts.onClose]        - 메뉴가 닫힐 때 호출되는 콜백
+ *   호출자(textEditing.js)가 slashMenu 상태를 null 로 동기화하는 데 사용한다.
+ *   외부 클릭·Enter·Esc 등 메뉴 자체가 닫히는 경우에도 호출자가 상태를 인지할 수 있도록
+ *   onClose 를 통해 상태를 동기화한다.
  *
  * @returns {{ updateQuery: (q:string)=>void, close: ()=>void }}
  *   열린 메뉴의 제어 핸들을 반환한다 (textEditing.js 에서 query 업데이트에 사용).
  */
-export function openInlineSlashMenu(anchorEl, blockId, currentBlockType, { reloadDocument = null } = {}) {
+export function openInlineSlashMenu(anchorEl, blockId, currentBlockType, { reloadDocument = null, onClose = null } = {}) {
   // 기존 메뉴 제거 (중복 방지)
   closeAllInlineSlashMenus();
 
@@ -308,15 +318,29 @@ export function openInlineSlashMenu(anchorEl, blockId, currentBlockType, { reloa
     menuEl.remove();
     anchorEl.removeEventListener("keydown", onKeydown, { capture: true });
     removeOutsideListener();
+    _activeCleanups.delete(close);
+    // 호출자에게 닫힘 사실을 통보해 slashMenu 상태를 동기화한다.
+    // 외부 클릭·Enter·Esc 등 메뉴 자체가 닫히는 경우에도 호출자가 상태를 인지할 수 있도록
+    // 한다. (참고: Observer 패턴 — GoF Design Patterns §5.7)
+    onClose?.();
   }
+
+  // 레지스트리에 등록: closeAllInlineSlashMenus 가 리스너까지 완전히 정리할 수 있도록 한다.
+  _activeCleanups.add(close);
 
   return { updateQuery, close };
 }
 
 /**
- * 페이지에 열려 있는 모든 인라인 슬래시 메뉴를 제거한다.
- * (예: 다른 블록 클릭 시 기존 메뉴 정리)
+ * 페이지에 열려 있는 모든 인라인 슬래시 메뉴를 닫는다.
+ *
+ * DOM 요소만 제거하면 anchorEl 의 keydown(capture) 리스너와
+ * document mousedown 리스너가 정리되지 않아 핸들러가 누적된다.
+ * 레지스트리(_activeCleanups)에 등록된 각 메뉴의 close() 를 직접 호출해
+ * 리스너까지 완전히 정리한다.
  */
 export function closeAllInlineSlashMenus() {
-  document.querySelectorAll(".inline-slash-menu").forEach((el) => el.remove());
+  // Set 을 복사한 뒤 순회한다: close() 내부에서 _activeCleanups.delete 가 호출되므로
+  // 원본을 순회하면 반복 중 컬렉션이 변경되어 일부 항목이 건너뛰어질 수 있다.
+  new Set(_activeCleanups).forEach((fn) => fn());
 }
