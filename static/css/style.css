@@ -853,9 +853,38 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 /* [hidden] 속성이 있을 때 display:flex 를 덮어쓰지 않도록 명시적으로 숨김 처리.
    브라우저 UA 스타일시트의 [hidden]{display:none} 보다 클래스 선택자가 우선하므로
    직접 선언이 필요하다. (Ref: CSS Cascading and Inheritance — https://www.w3.org/TR/css-cascade-5/) */
-.mermaid-preview[hidden],
+.mermaid-panel[hidden],
+.mermaid-media-wrap[hidden],
+.mermaid-actions[hidden],
 .mermaid-error[hidden] {
   display: none;
+}
+
+/* 미리보기 래퍼: 액션 overlay의 position 기준점 */
+.mermaid-media-wrap {
+  position: relative;
+}
+
+/* 프리뷰 hover / 포커스 이동 시 액션 overlay 노출 */
+.mermaid-media-wrap:hover .mermaid-actions,
+.mermaid-media-wrap:focus-within .mermaid-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 이미지 블록과 동일한 액션 overlay 패턴 적용.
+   기본 opacity:0 / pointer-events:none — CSS hover가 제어한다.
+   [hidden] 속성이 없을 때만 overlay가 DOM에 존재하므로 transition이 자연스럽게 동작한다. */
+.mermaid-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
 
 .mermaid-preview {
@@ -875,8 +904,15 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   display: block;
 }
 
-/* 문법 오류 표시 영역 */
+/* ── 문법 오류 표시 영역 ─────────────────────────────────────────────────── */
+
+/* 오류 메시지와 재시도 버튼을 가로로 배치.
+   flex-wrap: wrap 으로 긴 오류 메시지가 버튼을 밀어내지 않도록 한다. */
 .mermaid-error {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
   padding: 0.6rem 1rem;
   background: rgba(220, 53, 69, 0.08);
   border-top: 1px solid rgba(220, 53, 69, 0.25);
@@ -884,8 +920,55 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.mermaid-error-msg {
+  flex: 1 1 60%;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 재시도 버튼: 오류 스타일과 시각적으로 일관된 인라인 버튼 */
+.mermaid-retry-btn {
+  flex-shrink: 0;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid rgba(220, 53, 69, 0.45);
+  border-radius: 4px;
+  background: transparent;
+  color: #e55563;
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.mermaid-retry-btn:hover,
+.mermaid-retry-btn:focus-visible {
+  background: rgba(220, 53, 69, 0.1);
+  outline: 2px solid rgba(220, 53, 69, 0.5);
+  outline-offset: 1px;
+}
+
+/* ── Mermaid 라이트박스 SVG 컨테이너 ────────────────────────────────────── */
+
+/* 이미지 라이트박스(.image-lightbox-overlay, .image-lightbox-close)를 재사용하고
+   SVG 전용 컨테이너 스타일만 추가한다. */
+.mermaid-lightbox-svg {
+  max-width: min(92vw, 1100px);
+  max-height: 90vh;
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: auto;
+}
+
+.mermaid-lightbox-svg svg {
+  /* 라이트박스 내에서 SVG가 전체 너비를 채우도록 한다 */
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 /* ── Callout block ───────────────────────────────────────────────────────── */
