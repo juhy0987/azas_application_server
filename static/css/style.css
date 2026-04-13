@@ -850,6 +850,14 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 }
 
 /* 다이어그램 미리보기 영역: 흰 배경에 중앙 정렬 */
+/* [hidden] 속성이 있을 때 display:flex 를 덮어쓰지 않도록 명시적으로 숨김 처리.
+   브라우저 UA 스타일시트의 [hidden]{display:none} 보다 클래스 선택자가 우선하므로
+   직접 선언이 필요하다. (Ref: CSS Cascading and Inheritance — https://www.w3.org/TR/css-cascade-5/) */
+.mermaid-preview[hidden],
+.mermaid-error[hidden] {
+  display: none;
+}
+
 .mermaid-preview {
   padding: 1.25rem 1rem;
   background: #fff;
