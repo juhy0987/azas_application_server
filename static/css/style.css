@@ -1113,7 +1113,13 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 /* 이미지를 감싸는 래퍼 — action overlay의 position 기준점 */
 .image-media-wrap {
   position: relative;
-  line-height: 0; /* img 하단 공백 제거 */
+}
+
+/* img 기본값(inline)으로 생기는 하단 공백 제거.
+   line-height: 0 을 래퍼에 주면 자식 텍스트(플레이스홀더·버튼)가 상속해
+   텍스트가 잘리므로, img 자체에 display: block 을 적용한다. */
+.image-media-wrap img {
+  display: block;
 }
 
 /* 액션 overlay: 기본 숨김, 이미지 hover 시 노출 */
