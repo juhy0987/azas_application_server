@@ -79,12 +79,19 @@ async function renderMermaid(blockId, source, previewEl, errorEl) {
     const { svg } = await window.mermaid.render(renderId, trimmed);
     previewEl.innerHTML = svg;
 
-    // Mermaid는 SVG에 width/height 속성을 직접 주입한다.
-    // 이 값이 CSS보다 우선해 크기 고정이 무시되므로 제거한다.
-    // viewBox 속성은 유지해 CSS width에 맞춰 비율이 유지되도록 한다.
+    // Mermaid v10+ 는 SVG에 두 가지 방식으로 크기를 고정한다.
+    //   1) HTML attribute: width="NNN" height="NNN"
+    //   2) inline style:  style="max-width: NNNpx;"
+    // 두 값 모두 외부 CSS보다 우선하므로 제거해야 CSS width/height:auto 가 적용된다.
+    // viewBox 속성은 유지해 CSS width 기준으로 종횡비가 계산되도록 한다.
     const svgEl = previewEl.querySelector("svg");
-    svgEl?.removeAttribute("width");
-    svgEl?.removeAttribute("height");
+    if (svgEl) {
+      svgEl.removeAttribute("width");
+      svgEl.removeAttribute("height");
+      svgEl.style.width = "";
+      svgEl.style.height = "";
+      svgEl.style.maxWidth = "";
+    }
 
     previewEl.hidden = false;
     errorEl.hidden = true;
