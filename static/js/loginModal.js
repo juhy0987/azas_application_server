@@ -3,7 +3,7 @@
 // 우상단 로그인 버튼과 모달을 관리한다.
 // 인증 상태에 따라 버튼 텍스트/동작이 전환된다.
 
-import { getAuthState, onAuthChange, login, logout, fetchAuthStatus } from "./auth.js";
+import { getAuthState, onAuthChange, login, logout } from "./auth.js";
 
 /** 로그인 버튼 및 모달을 초기화한다. */
 export function initLoginUI() {

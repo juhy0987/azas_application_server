@@ -1,6 +1,12 @@
 """Shared pytest fixtures."""
 from __future__ import annotations
 
+import os
+
+# 테스트 환경에서 관리자 자격 증명을 고정한다.
+# config.py가 모듈 임포트 시 환경변수를 읽으므로, 최상위에서 설정해야 한다.
+os.environ.setdefault("ADMIN_PASSWORD", "admin1234")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -55,6 +61,9 @@ def client(engine):
   app.dependency_overrides[get_repository] = _override
   with TestClient(app) as c:
     # 관리자 로그인 — 세션 쿠키가 TestClient에 자동 저장됨
-    c.post("/api/auth/login", json={"username": "admin", "password": "admin1234"})
+    login_res = c.post("/api/auth/login", json={"username": "admin", "password": "admin1234"})
+    assert login_res.status_code == 200, (
+      f"Admin auto-login failed: status={login_res.status_code}, body={login_res.text}"
+    )
     yield c
   app.dependency_overrides.clear()

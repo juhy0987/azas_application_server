@@ -88,6 +88,7 @@ export async function apiUploadFile(file) {
   const form = new FormData();
   form.append('file', file);
   const res = await fetch('/api/files', { method: 'POST', body: form });
+  _checkPermission(res);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail ?? '파일 업로드에 실패했습니다.');
@@ -98,6 +99,7 @@ export async function apiUploadFile(file) {
 export async function apiDeleteFile(fileId) {
   // 이미 없는 파일(404)은 정상으로 처리 — 멱등성 보장
   const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
+  _checkPermission(res);
   if (!res.ok && res.status !== 404) throw new Error('파일 삭제에 실패했습니다.');
 }
 

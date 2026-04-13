@@ -4,8 +4,7 @@
 딕셔너리에 보관한다. 토큰 검증 시 만료된 세션은 자동으로 제거된다.
 
 보안 고려사항:
-  - 토큰 비교: ``secrets.compare_digest``로 타이밍 공격 방지
-    Ref: https://docs.python.org/3/library/secrets.html#secrets.compare_digest
+  - 토큰은 충분한 엔트로피를 가진 난수로 생성하여 세션 식별자로 사용
   - 토큰 길이: 32바이트(URL-safe base64 → 43자) — OWASP 권장 128비트 이상
     Ref: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
 """
@@ -32,6 +31,7 @@ class SessionStore:
 
   def create(self, username: str) -> str:
     """새 세션을 생성하고 토큰을 반환한다."""
+    self.cleanup_expired()
     token = secrets.token_urlsafe(32)
     self._sessions[token] = _SessionEntry(
       username=username,
@@ -45,7 +45,7 @@ class SessionStore:
     if entry is None:
       return None
     if time.time() > entry.expires_at:
-      del self._sessions[token]
+      self._sessions.pop(token, None)
       return None
     return entry.username
 
