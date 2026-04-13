@@ -3,9 +3,11 @@
 테스트 범위:
   1. HTML 파서 서비스 — 각 블록 타입 변환 정확도
   2. 인라인 서식 변환 — bold, italic, link 등
-  3. ZIP 아카이브 처리 — 다중 페이지 구조 변환
+  3. ZIP 아카이브 처리 — 다중 페이지 구조 변환, 이중 ZIP
   4. Import API 엔드포인트 — HTTP 상태 코드 및 응답 구조
   5. 에러 처리 — 잘못된 파일 형식, 빈 파일, 큰 파일
+  6. Markdown 파서 서비스 — 각 블록 타입 변환
+  7. CSV 데이터베이스 파싱
 """
 from __future__ import annotations
 
@@ -19,11 +21,16 @@ from app.services.notion_import import (
   ConversionReport,
   ImportResult,
   _extract_inline_text,
+  _flatten_zip,
   _is_image_file,
   _make_block,
+  _md_convert_inline,
+  _parse_csv_to_blocks,
   extract_and_parse_zip,
   parse_notion_html,
+  parse_notion_markdown,
   parse_single_html,
+  parse_single_markdown,
 )
 
 
@@ -429,9 +436,9 @@ class TestZipProcessing:
     with pytest.raises(ValueError, match="유효하지 않은 ZIP"):
       extract_and_parse_zip(b"not a zip file")
 
-  def test_rejects_zip_without_html(self):
-    zip_data = _make_zip({"readme.txt": "no html here"})
-    with pytest.raises(ValueError, match="HTML 파일이 없습니다"):
+  def test_rejects_zip_without_content(self):
+    zip_data = _make_zip({"readme.txt": "no content here"})
+    with pytest.raises(ValueError, match="변환 가능한 파일"):
       extract_and_parse_zip(zip_data)
 
   def test_ignores_macosx_folder(self):
@@ -696,3 +703,303 @@ class TestComplexScenarios:
     result = parse_notion_html(html)
     # Level 1 + Level 2 = 2 blocks
     assert len(result.blocks) >= 2
+
+
+# ── Markdown 파서 테스트 ─────────────────────────────────────────────────────
+
+class TestMarkdownTitle:
+  """Markdown 제목 추출 테스트."""
+
+  def test_extracts_h1_title(self):
+    result = parse_notion_markdown("# My Page\n\nSome text")
+    assert result.title == "My Page"
+
+  def test_untitled_when_no_h1(self):
+    result = parse_notion_markdown("Some text without heading")
+    assert result.title == "Untitled"
+
+
+class TestMarkdownHeadings:
+  """Markdown 제목 블록 변환 테스트."""
+
+  def test_h2_becomes_level_2(self):
+    result = parse_notion_markdown("# Title\n\n## Section")
+    h2_blocks = [b for b in result.blocks if b.get("level") == 2]
+    assert len(h2_blocks) == 1
+    assert h2_blocks[0]["text"] == "Section"
+
+  def test_h3_becomes_level_3(self):
+    result = parse_notion_markdown("# Title\n\n### Subsection")
+    h3_blocks = [b for b in result.blocks if b.get("level") == 3]
+    assert len(h3_blocks) == 1
+
+
+class TestMarkdownParagraph:
+  """Markdown 단락 변환 테스트."""
+
+  def test_plain_paragraph(self):
+    result = parse_notion_markdown("# Title\n\nHello world")
+    text_blocks = [b for b in result.blocks if b["type"] == "text" and not b.get("level")]
+    assert len(text_blocks) == 1
+    assert text_blocks[0]["text"] == "Hello world"
+
+
+class TestMarkdownLists:
+  """Markdown 리스트 변환 테스트."""
+
+  def test_bulleted_list(self):
+    result = parse_notion_markdown("# T\n\n- Apple\n- Banana")
+    bullets = [b for b in result.blocks if "•" in b.get("text", "")]
+    assert len(bullets) == 2
+    assert "Apple" in bullets[0]["text"]
+
+  def test_numbered_list(self):
+    result = parse_notion_markdown("# T\n\n1. First\n2. Second")
+    nums = [b for b in result.blocks if b.get("text", "").startswith(("1.", "2."))]
+    assert len(nums) == 2
+
+  def test_todo_checked(self):
+    result = parse_notion_markdown("# T\n\n- [x] Done task")
+    assert any("☑" in b.get("text", "") for b in result.blocks)
+
+  def test_todo_unchecked(self):
+    result = parse_notion_markdown("# T\n\n- [ ] Pending task")
+    assert any("☐" in b.get("text", "") for b in result.blocks)
+
+
+class TestMarkdownCodeBlock:
+  """Markdown 코드 블록 변환 테스트."""
+
+  def test_fenced_code_with_language(self):
+    md = "# T\n\n```python\nprint('hello')\n```"
+    result = parse_notion_markdown(md)
+    code_blocks = [b for b in result.blocks if b["type"] == "code"]
+    assert len(code_blocks) == 1
+    assert code_blocks[0]["language"] == "python"
+    assert "print('hello')" in code_blocks[0]["code"]
+
+  def test_fenced_code_without_language(self):
+    md = "# T\n\n```\nplain text\n```"
+    result = parse_notion_markdown(md)
+    code_blocks = [b for b in result.blocks if b["type"] == "code"]
+    assert code_blocks[0]["language"] == "plain"
+
+
+class TestMarkdownQuote:
+  """Markdown 인용문 변환 테스트."""
+
+  def test_blockquote(self):
+    result = parse_notion_markdown("# T\n\n> A wise saying")
+    quotes = [b for b in result.blocks if b["type"] == "quote"]
+    assert len(quotes) == 1
+    assert "A wise saying" in quotes[0]["text"]
+
+
+class TestMarkdownDivider:
+  """Markdown 구분선 변환 테스트."""
+
+  def test_hr(self):
+    result = parse_notion_markdown("# T\n\n---")
+    dividers = [b for b in result.blocks if b["type"] == "divider"]
+    assert len(dividers) == 1
+
+
+class TestMarkdownImage:
+  """Markdown 이미지 변환 테스트."""
+
+  def test_image(self):
+    result = parse_notion_markdown("# T\n\n![caption](images/photo.png)")
+    imgs = [b for b in result.blocks if b["type"] == "image"]
+    assert len(imgs) == 1
+    assert "photo.png" in imgs[0]["url"]
+    assert imgs[0]["caption"] == "caption"
+
+
+class TestMarkdownInline:
+  """Markdown 인라인 서식 변환 테스트."""
+
+  def test_bold(self):
+    plain, fmt = _md_convert_inline("**bold text**")
+    assert plain == "bold text"
+    assert fmt == "<b>bold text</b>"
+
+  def test_italic(self):
+    plain, fmt = _md_convert_inline("*italic*")
+    assert plain == "italic"
+    assert fmt == "<i>italic</i>"
+
+  def test_strikethrough(self):
+    plain, fmt = _md_convert_inline("~~deleted~~")
+    assert plain == "deleted"
+    assert fmt == "<s>deleted</s>"
+
+  def test_inline_code(self):
+    plain, fmt = _md_convert_inline("`code`")
+    assert plain == "code"
+    assert fmt == "<code>code</code>"
+
+  def test_link(self):
+    plain, fmt = _md_convert_inline("[click](https://x.com)")
+    assert plain == "click"
+    assert 'href="https://x.com"' in fmt
+
+  def test_no_formatting_returns_none(self):
+    plain, fmt = _md_convert_inline("plain text")
+    assert plain == "plain text"
+    assert fmt is None
+
+
+class TestMarkdownSubpageLinks:
+  """Markdown 하위 페이지 링크 수집 테스트."""
+
+  def test_collects_md_links(self):
+    md = "# T\n\n- [SubPage](SubPage%20UUID.md)"
+    result = parse_notion_markdown(md)
+    assert len(result.sub_page_links) == 1
+    assert "SubPage UUID.md" in result.sub_page_links[0]
+
+
+# ── 이중 ZIP 처리 테스트 ─────────────────────────────────────────────────────
+
+class TestNestedZip:
+  """이중 ZIP (ZIP 내부 ZIP) 추출 테스트."""
+
+  def test_flatten_nested_zip(self):
+    """내부 ZIP을 자동으로 해제합니다."""
+    inner_zip = _make_zip({"page.md": "# Hello\n\nWorld"})
+    outer_zip = _make_zip({"Export-Part-1.zip": inner_zip.decode("latin-1")})
+    # 바이너리로 직접 생성
+    inner_buf = io.BytesIO()
+    with zipfile.ZipFile(inner_buf, "w") as zf:
+      zf.writestr("page.md", "# Hello\n\nWorld")
+    outer_buf = io.BytesIO()
+    with zipfile.ZipFile(outer_buf, "w") as zf:
+      zf.writestr("Export-Part-1.zip", inner_buf.getvalue())
+
+    files = _flatten_zip(outer_buf.getvalue())
+    assert "page.md" in files
+    assert b"# Hello" in files["page.md"]
+
+  def test_extract_and_parse_nested_zip(self):
+    """이중 ZIP에서 Markdown 파일을 파싱합니다."""
+    inner_buf = io.BytesIO()
+    with zipfile.ZipFile(inner_buf, "w") as zf:
+      zf.writestr("Root/page.md", "# Test Page\n\nContent here")
+    outer_buf = io.BytesIO()
+    with zipfile.ZipFile(outer_buf, "w") as zf:
+      zf.writestr("Export-Part-1.zip", inner_buf.getvalue())
+
+    result = extract_and_parse_zip(outer_buf.getvalue())
+    assert len(result.pages) == 1
+    assert result.pages[0]["title"] == "Test Page"
+
+  def test_nested_zip_with_images(self):
+    """이중 ZIP에서 이미지를 추출합니다."""
+    fake_png = b"\x89PNG" + b"\x00" * 50
+    inner_buf = io.BytesIO()
+    with zipfile.ZipFile(inner_buf, "w") as zf:
+      zf.writestr("Root/page.md", "# T\n\n![img](page/image.png)")
+      zf.writestr("Root/page/image.png", fake_png)
+    outer_buf = io.BytesIO()
+    with zipfile.ZipFile(outer_buf, "w") as zf:
+      zf.writestr("Part-1.zip", inner_buf.getvalue())
+
+    result = extract_and_parse_zip(outer_buf.getvalue())
+    assert len(result.image_mappings) == 1
+
+
+# ── CSV 파싱 테스트 ──────────────────────────────────────────────────────────
+
+class TestCsvParsing:
+  """CSV 데이터베이스 파싱 테스트."""
+
+  def test_csv_to_blocks(self):
+    csv_text = "Name,Score\nAlice,100\nBob,95"
+    blocks = _parse_csv_to_blocks(csv_text)
+    # 헤더 + 구분선 + 2 데이터 행 = 4 블록
+    assert len(blocks) == 4
+    assert blocks[0]["type"] == "text"
+    assert blocks[0]["level"] == 3
+    assert "Name" in blocks[0]["text"]
+    assert blocks[1]["type"] == "divider"
+
+  def test_empty_csv(self):
+    blocks = _parse_csv_to_blocks("")
+    assert blocks == []
+
+  def test_csv_in_zip_attached_to_parent(self):
+    """ZIP 내 CSV가 부모 페이지에 블록으로 추가됩니다."""
+    md_content = "# Project\n\n- [DB](DB%20abc123.csv)"
+    csv_content = "Task,Status\nDo thing,Done"
+    zip_data = _make_zip({
+      "Root/page.md": md_content,
+      "Root/DB abc123.csv": csv_content,
+    })
+    result = extract_and_parse_zip(zip_data)
+    # CSV 블록이 페이지에 추가되었는지 확인
+    all_blocks = []
+    for page in result.pages:
+      all_blocks.extend(page["blocks"])
+    # CSV 헤더 텍스트가 포함된 블록이 있어야 함
+    assert any("Task" in b.get("text", "") for b in all_blocks)
+
+  def test_all_csv_excluded(self):
+    """_all.csv 파일은 중복이므로 제외됩니다."""
+    zip_data = _make_zip({
+      "Root/page.md": "# Title\n\nText",
+      "Root/DB abc123.csv": "A,B\n1,2",
+      "Root/DB abc123_all.csv": "A,B\n1,2",
+    })
+    result = extract_and_parse_zip(zip_data)
+    # _all.csv가 처리되지 않았으므로 CSV 블록은 한 세트만 존재
+    csv_headers = [b for page in result.pages
+                   for b in page["blocks"]
+                   if b.get("level") == 3 and "A" in b.get("text", "")]
+    assert len(csv_headers) == 1
+
+
+# ── Markdown ZIP import API 테스트 ──────────────────────────────────────────
+
+class TestMarkdownImportAPI:
+  """Markdown 관련 Import API 테스트."""
+
+  def test_import_single_md_returns_201(self, client):
+    md = "# MD Page\n\nSome content\n\n- Item 1\n- Item 2"
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("page.md", md.encode(), "text/markdown")},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["title"] == "MD Page"
+    assert data["total_pages"] == 1
+
+  def test_import_md_zip_returns_201(self, client):
+    """Markdown ZIP import 테스트."""
+    inner_buf = io.BytesIO()
+    with zipfile.ZipFile(inner_buf, "w") as zf:
+      zf.writestr("Root/page.md", "# ZipMD\n\nContent")
+    outer_buf = io.BytesIO()
+    with zipfile.ZipFile(outer_buf, "w") as zf:
+      zf.writestr("Part-1.zip", inner_buf.getvalue())
+
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", outer_buf.getvalue(), "application/zip")},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["title"] == "ZipMD"
+
+  def test_import_md_preserves_block_types(self, client):
+    md = "# Title\n\nParagraph\n\n---\n\n```js\nconsole.log()\n```"
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("test.md", md.encode(), "text/markdown")},
+    )
+    doc_id = resp.json()["document_id"]
+    doc = client.get(f"/api/documents/{doc_id}").json()
+    types = [b["type"] for b in doc["blocks"]]
+    assert "text" in types
+    assert "divider" in types
+    assert "code" in types
