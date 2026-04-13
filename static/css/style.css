@@ -2570,6 +2570,14 @@ body.lightbox-open {
   width: 100%;
 }
 
+/* hidden 속성이 display: flex 등에 의해 덮어쓰이지 않도록 명시 */
+.file-empty-state[hidden],
+.file-upload-spinner[hidden],
+.file-uploaded-state[hidden],
+.file-upload-error[hidden] {
+  display: none;
+}
+
 /* ── 빈 상태(드롭존) ─────────────────────────────────────────────────────────── */
 
 .file-drop-zone {
