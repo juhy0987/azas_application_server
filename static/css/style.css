@@ -2154,3 +2154,116 @@ body.sidebar-collapsed .sidebar-tab-chevron {
     flex-direction: column;
   }
 }
+
+/* ── Inline Slash Command Menu ──────────────────────────────────────────────────
+ *
+ * 텍스트 블록에서 '/' 입력 시 나타나는 인라인 블록 타입 전환 드롭다운.
+ *
+ * 배치 방향:
+ *   기본 — 앵커 요소 위쪽 (position: fixed; bottom 지정)
+ *   fallback — 상단 공간 부족 시 아래쪽 (JS 에서 data-direction="down" 부여)
+ *
+ * ARIA: role="listbox" / role="option" 구조를 따른다.
+ * 참고: WAI-ARIA 1.2 Listbox Pattern
+ *       https://www.w3.org/WAI/ARIA/apg/patterns/listbox/
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+.inline-slash-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+
+  /* 부드러운 등장 애니메이션 */
+  animation: inline-slash-menu-in 0.12s ease-out;
+}
+
+/* 위쪽으로 열릴 때 transform origin을 아래쪽으로 설정 */
+.inline-slash-menu[data-direction="up"] {
+  transform-origin: bottom left;
+}
+
+/* 아래쪽으로 열릴 때 transform origin을 위쪽으로 설정 */
+.inline-slash-menu[data-direction="down"] {
+  transform-origin: top left;
+}
+
+@keyframes inline-slash-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 각 블록 타입 옵션 버튼 */
+.inline-slash-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-primary, #1a1a1a);
+  text-align: left;
+  transition: background 0.08s;
+
+  /* 버튼 기본 리셋 */
+  outline: none;
+}
+
+.inline-slash-menu__item:hover,
+.inline-slash-menu__item.is-highlighted {
+  background: var(--hover-bg, #f0f0f0);
+}
+
+/* 키보드 포커스 링: 마우스 사용자에게는 숨기고 키보드 사용자에게만 표시 */
+.inline-slash-menu__item:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -2px;
+}
+
+/* 아이콘 영역 */
+.inline-slash-menu__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 4px;
+  background: var(--surface-raised, #f5f5f5);
+  color: var(--text-secondary, #555);
+  border: 1px solid var(--border, #e0e0e0);
+}
+
+/* 레이블 */
+.inline-slash-menu__label {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: inherit;
+}
+
+/* 필터 결과 없음 메시지 */
+.inline-slash-menu__empty {
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #999);
+  text-align: center;
+}
