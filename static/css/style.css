@@ -861,15 +861,18 @@ body.sidebar-collapsed .sidebar-tab-chevron {
 .mermaid-preview {
   padding: 1.25rem 1rem;
   background: #fff;
-  overflow-x: auto;
   display: flex;
   justify-content: center;
   align-items: flex-start;
 }
 
 .mermaid-preview svg {
-  max-width: 100%;
+  /* 너비를 640px로 고정하되 컨테이너가 더 좁으면 100%로 축소.
+     height:auto + viewBox 조합으로 비율에 맞게 높이가 결정된다.
+     Mermaid가 SVG에 직접 주입하는 width/height 속성은 renderMermaid()에서 제거한다. */
+  width: min(640px, 100%);
   height: auto;
+  display: block;
 }
 
 /* 문법 오류 표시 영역 */
