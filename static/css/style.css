@@ -842,6 +842,52 @@ body.sidebar-collapsed .sidebar-tab-chevron {
   color: #abb2bf;
 }
 
+/* ── Mermaid preview panel ───────────────────────────────────────────────── */
+
+/* mermaid 모드일 때 소스 에디터의 배경을 약간 어둡게 유지 */
+.notion-code.is-mermaid .code-body {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* 다이어그램 미리보기 영역: 흰 배경에 중앙 정렬 */
+/* [hidden] 속성이 있을 때 display:flex 를 덮어쓰지 않도록 명시적으로 숨김 처리.
+   브라우저 UA 스타일시트의 [hidden]{display:none} 보다 클래스 선택자가 우선하므로
+   직접 선언이 필요하다. (Ref: CSS Cascading and Inheritance — https://www.w3.org/TR/css-cascade-5/) */
+.mermaid-preview[hidden],
+.mermaid-error[hidden] {
+  display: none;
+}
+
+.mermaid-preview {
+  padding: 1.25rem 1rem;
+  background: #fff;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.mermaid-preview svg {
+  /* 너비를 640px로 고정하되 컨테이너가 더 좁으면 100%로 축소.
+     height:auto + viewBox 조합으로 비율에 맞게 높이가 결정된다.
+     Mermaid가 SVG에 직접 주입하는 width/height 속성은 renderMermaid()에서 제거한다. */
+  width: min(640px, 100%);
+  height: auto;
+  display: block;
+}
+
+/* 문법 오류 표시 영역 */
+.mermaid-error {
+  padding: 0.6rem 1rem;
+  background: rgba(220, 53, 69, 0.08);
+  border-top: 1px solid rgba(220, 53, 69, 0.25);
+  color: #e55563;
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Callout block ───────────────────────────────────────────────────────── */
 
 .notion-callout {
