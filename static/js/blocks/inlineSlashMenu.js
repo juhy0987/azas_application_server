@@ -204,6 +204,12 @@ export function openInlineSlashMenu(anchorEl, blockId, currentBlockType, { reloa
    */
   async function executeItem(item) {
     close();
+    // anchorEl.contentEditable 을 미리 "false" 로 설정한다.
+    // reloadDocument() 가 DOM 을 재구성하면서 node 가 제거될 때 브라우저가
+    // blur 이벤트를 발생시킨다. 이 시점에 textEditing.js 의 blur 핸들러가
+    // "if (node.contentEditable !== 'true') return" 으로 조기 반환하도록 해
+    // '/' 텍스트가 API 에 저장되는 것을 방지한다.
+    anchorEl.contentEditable = "false";
     try {
       if (item.level != null) {
         // heading 전환: text 타입 + level 변경

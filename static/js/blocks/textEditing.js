@@ -88,11 +88,20 @@ export function makeTextEditable(node, blockId, {
     if (node.contentEditable !== "true") return;
 
     // 슬래시 메뉴가 열려 있을 때 blur 가 발생하면 메뉴를 닫고 저장을 건너뛴다.
-    // (메뉴 항목 클릭 시 mousedown preventDefault 로 blur 자체를 막지만,
-    //  외부 요소로 포커스가 이동하는 경우의 안전망 처리)
+    // ─ 두 가지 상황에서 이 경로가 실행된다:
+    //   ① 메뉴 항목 클릭 시: mousedown preventDefault 로 blur 자체가 막히므로 도달 안 함
+    //   ② 외부 요소로 포커스 이동 또는 executeItem→reloadDocument 가 DOM 을 재구성해
+    //      node 가 제거될 때 브라우저가 blur 를 발생시키는 경우
+    // ─ 이 때 '/' 이후 query 텍스트가 API 에 저장되는 것을 막기 위해
+    //   슬래시 입력 이전 상태로 텍스트를 복원한 뒤 즉시 반환한다.
     if (slashMenu) {
       slashMenu.close();
       slashMenu = null;
+      node.textContent = slashPreText; // '/' 이전 상태 복원 (query 텍스트 제거)
+      node.contentEditable = "false";
+      editingTarget.classList.remove("is-editing");
+      clearEditingNode();
+      return; // ← '/' 포함 텍스트를 저장하지 않고 종료
     }
 
     node.contentEditable = "false";
