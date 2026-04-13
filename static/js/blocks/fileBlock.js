@@ -10,7 +10,7 @@
 //         ↓ 완료
 //   uploaded (파일 카드)
 
-import { apiUploadFile, apiDeleteFile, apiPatchBlock, apiDeleteBlock } from "../api.js";
+import { apiUploadFile, apiDeleteFile, apiPatchBlock } from "../api.js";
 
 export const type = "file";
 
@@ -91,18 +91,31 @@ export function create(block, { callbacks } = {}) {
   async function handleFile(file) {
     if (!file) return;
     showUploading();
+
+    // patch 성공 후에만 block 상태를 갱신하여 실패 시 orphan 파일을 방지한다.
+    // Ref: 낙관적 업데이트 대신 확정(confirm-then-apply) 패턴 사용
+    //   https://developer.mozilla.org/en-US/docs/Glossary/Optimistic_UI
+    let uploadedFile = null;
     try {
-      const result = await apiUploadFile(file);
-      // 서버에서 반환된 메타데이터를 block 객체에 반영
-      block.file_id           = result.id;
-      block.original_filename = result.original_filename;
-      block.size_bytes        = result.size_bytes;
-      block.mime_type         = result.mime_type;
-      block.download_url      = result.download_url;
-      // 블록 content_json에 file_id 저장
-      await apiPatchBlock(block.id, { file_id: result.id });
+      uploadedFile = await apiUploadFile(file);
+      // 블록 content_json에 file_id 저장이 성공한 뒤에만
+      // block 객체에 업로드된 파일 메타데이터를 반영한다.
+      await apiPatchBlock(block.id, { file_id: uploadedFile.id });
+
+      block.file_id           = uploadedFile.id;
+      block.original_filename = uploadedFile.original_filename;
+      block.size_bytes        = uploadedFile.size_bytes;
+      block.mime_type         = uploadedFile.mime_type;
+      block.download_url      = uploadedFile.download_url;
+
       showUploaded();
     } catch (err) {
+      // patch 실패 시 이미 업로드된 파일을 정리하여 orphan 방지
+      if (uploadedFile?.id) {
+        await apiDeleteFile(uploadedFile.id).catch((deleteErr) => {
+          console.error("업로드된 파일 정리 실패:", deleteErr);
+        });
+      }
       console.error("파일 업로드 실패:", err);
       showError(err.message || "업로드 실패. 다시 시도하세요.");
     } finally {
@@ -139,19 +152,23 @@ export function create(block, { callbacks } = {}) {
     e.preventDefault();
     e.stopPropagation();
     const oldFileId = block.file_id;
-    // 먼저 UI를 빈 상태로 전환 (낙관적 업데이트)
-    block.file_id           = "";
-    block.original_filename = "";
-    block.size_bytes        = 0;
-    block.mime_type         = "";
-    block.download_url      = "";
-    showEmpty();
+
+    // patch 성공 후에만 로컬 상태를 갱신하여 서버/클라이언트 불일치를 방지한다.
     try {
       await apiPatchBlock(block.id, { file_id: "" });
-      // 파일 레코드와 디스크 파일도 정리 — 실패해도 UI는 이미 빈 상태
+
+      block.file_id           = "";
+      block.original_filename = "";
+      block.size_bytes        = 0;
+      block.mime_type         = "";
+      block.download_url      = "";
+      showEmpty();
+
+      // 서버의 블록 참조 제거가 확인된 뒤에만 실제 파일 삭제를 시도
       if (oldFileId) await apiDeleteFile(oldFileId).catch(console.error);
     } catch (err) {
       console.error("파일 제거 실패:", err);
+      showError("파일 제거에 실패했습니다. 다시 시도하세요.");
     }
   });
 
