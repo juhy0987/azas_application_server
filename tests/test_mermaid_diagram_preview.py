@@ -10,8 +10,6 @@ Python 단위 테스트에서는 해당 데이터를 올바르게 저장·제공
 """
 from __future__ import annotations
 
-import pytest
-
 
 # ── Mermaid 다이어그램 예시 ────────────────────────────────────────────────────
 
