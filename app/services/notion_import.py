@@ -886,31 +886,38 @@ def extract_and_parse_zip(zip_data: bytes) -> ImportResult:
       logger.error("파일 파싱 실패: %s — %s", file_path, exc)
       overall_report.warnings.append(f"파일 파싱 실패: {file_path}")
 
-  # CSV 파일 → 테이블 블록으로 변환하여 관련 페이지에 추가
+  # CSV 파일 → DatabaseBlock(+db_row)으로 변환하여 관련 페이지에 추가
+  # (이슈 #69: Notion DB 연계 정합성 — CSV는 Notion 데이터베이스의 export
+  # 산출물이므로 내부 DatabaseBlock 구조에 직접 매핑한다)
   for csv_path in csv_files:
     try:
       raw = all_files[csv_path]
       csv_text = raw.decode("utf-8-sig", errors="replace")
-      csv_blocks = _parse_csv_to_blocks(csv_text)
-      if csv_blocks:
-        csv_stem = PurePosixPath(csv_path).stem
-        # UUID 해시 제거 — Notion export는 "제목 UUID해시.csv" 패턴
-        csv_title = re.sub(r"\s+[0-9a-f]{32}$", "", csv_stem).strip() or csv_stem
+      csv_stem = PurePosixPath(csv_path).stem
+      # UUID 해시 제거 — Notion export는 "제목 UUID해시.csv" 패턴
+      csv_title = re.sub(r"\s+[0-9a-f]{32}$", "", csv_stem).strip() or csv_stem
 
-        # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
-        parent_page = _find_parent_page_for_csv(csv_path, pages)
-        if parent_page:
-          parent_page["blocks"].extend(csv_blocks)
-        else:
-          # 부모를 못 찾으면 독립 페이지로 생성
-          pages.append({
-            "path": csv_path,
-            "title": csv_title,
-            "blocks": csv_blocks,
-            "sub_page_links": [],
-          })
-        overall_report.converted += len(csv_blocks)
-        overall_report.total_elements += len(csv_blocks)
+      db_block = _parse_csv_to_database(csv_text, csv_title)
+      if db_block is None:
+        continue
+
+      # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
+      parent_page = _find_parent_page_for_csv(csv_path, pages)
+      if parent_page:
+        parent_page["blocks"].append(db_block)
+      else:
+        # 부모를 못 찾으면 독립 페이지로 생성
+        pages.append({
+          "path": csv_path,
+          "title": csv_title,
+          "blocks": [db_block],
+          "sub_page_links": [],
+        })
+
+      row_count = len(db_block["children"])
+      # database 블록 1개 + db_row N개
+      overall_report.converted += 1 + row_count
+      overall_report.total_elements += 1 + row_count
     except Exception as exc:
       logger.warning("CSV 파싱 실패: %s — %s", csv_path, exc)
       overall_report.warnings.append(f"CSV 파싱 실패: {csv_path}")
@@ -1295,37 +1302,129 @@ def parse_notion_markdown(md_content: str) -> ParsedPage:
 
 # ── CSV 파서 ────────────────────────────────────────────────────────────────────
 
-def _parse_csv_to_blocks(csv_text: str) -> list[dict[str, Any]]:
-  """Notion export CSV 파일을 텍스트 기반 블록으로 변환합니다.
+# Notion export CSV는 타입 메타데이터를 포함하지 않으므로, 값 샘플링 기반으로
+# 내부 DatabaseBlock 스키마의 컬럼 타입(number/checkbox/text)을 추론한다.
+# Ref: Notion Export — https://www.notion.so/help/export-your-content
 
-  Notion 데이터베이스는 CSV로 export되며, 첫 행이 컬럼 헤더입니다.
-  각 행을 파이프(|) 구분 텍스트 블록으로 변환합니다.
+_CHECKBOX_TRUE_TOKENS: frozenset[str] = frozenset(
+  {"yes", "y", "true", "1", "checked", "o", "v", "✓", "☑"}
+)
+_CHECKBOX_FALSE_TOKENS: frozenset[str] = frozenset(
+  {"no", "n", "false", "0", "unchecked", "x", "✗", "☐"}
+)
+
+
+def _is_number_like(raw: str) -> bool:
+  """숫자로 해석 가능한 문자열인지 판단한다 (천 단위 콤마 허용)."""
+  s = raw.strip().replace(",", "")
+  if not s:
+    return False
+  try:
+    float(s)
+    return True
+  except ValueError:
+    return False
+
+
+def _infer_column_type(values: list[str]) -> str:
+  """컬럼 값 샘플로부터 DatabaseBlock 컬럼 타입을 보수적으로 추론한다.
+
+  우선순위: 빈 컬럼 → text, 전부 숫자 → number, 전부 체크박스 토큰 → checkbox,
+  그 외 → text. 선택(select) 타입은 CSV만으로는 값과 단순 열거를 구분할 수
+  없어 오추론 위험이 크므로 본 MVP에서는 추론하지 않는다(이슈 #69 비호환
+  사항 항목: "스키마 차이" 표현 한계 명시).
+  """
+  non_empty = [v.strip() for v in values if v and v.strip()]
+  if not non_empty:
+    return "text"
+  if all(_is_number_like(v) for v in non_empty):
+    return "number"
+  lowered = {v.lower() for v in non_empty}
+  if lowered <= (_CHECKBOX_TRUE_TOKENS | _CHECKBOX_FALSE_TOKENS):
+    return "checkbox"
+  return "text"
+
+
+def _coerce_cell_value(raw: str, col_type: str) -> Any:
+  """원본 문자열을 컬럼 타입에 맞는 Python 값으로 변환한다.
+
+  변환 실패 시 원본 문자열을 그대로 반환하여 데이터 유실을 방지한다
+  (이슈 #69: "누락/불일치 데이터에 대한 폴백 정책").
+  """
+  s = (raw or "").strip()
+  if col_type == "number":
+    if not s:
+      return None
+    cleaned = s.replace(",", "")
+    try:
+      return int(cleaned) if cleaned.lstrip("-").isdigit() else float(cleaned)
+    except ValueError:
+      return s
+  if col_type == "checkbox":
+    return s.lower() in _CHECKBOX_TRUE_TOKENS
+  return s
+
+
+def _parse_csv_to_database(csv_text: str, title: str) -> dict[str, Any] | None:
+  """Notion export CSV를 내부 DatabaseBlock(+db_row) 트리로 변환한다.
+
+  변환 규칙:
+    - 첫 행을 컬럼 스키마로 사용하며, 각 컬럼에 고유 UUID를 부여한다.
+    - 컬럼 타입은 값 샘플로부터 추론한다 (`_infer_column_type`).
+    - 데이터 행은 각각 `db_row` 블록으로 만들며, `properties`는
+      `{column_id: coerced_value}` 형태로 저장한다.
+    - 첫 컬럼의 값을 해당 행(페이지)의 제목으로 사용한다
+      (Notion 데이터베이스의 Name 컬럼 관례를 따른다).
 
   Args:
-    csv_text: CSV 파일 내용 문자열.
+    csv_text: UTF-8로 디코딩된 CSV 본문.
+    title: 생성될 database 블록의 제목(파일명 기반).
 
   Returns:
-    블록 dict 리스트. 빈 CSV이면 빈 리스트.
+    database 블록 dict (children에 db_row 목록 포함). 빈 CSV이면 None.
   """
   reader = csv.reader(io.StringIO(csv_text))
   rows = list(reader)
-  if not rows:
-    return []
+  if not rows or not any(any(cell.strip() for cell in r) for r in rows):
+    return None
 
-  blocks: list[dict[str, Any]] = []
-
-  # 헤더 행
   header = rows[0]
-  if any(cell.strip() for cell in header):
-    blocks.append(_make_block("text", text=" | ".join(header), level=3))
-    blocks.append(_make_block("divider"))
+  data_rows = [r for r in rows[1:] if any(cell.strip() for cell in r)]
 
-  # 데이터 행
-  for row in rows[1:]:
-    if any(cell.strip() for cell in row):
-      blocks.append(_make_block("text", text=" | ".join(row)))
+  columns: list[dict[str, Any]] = []
+  for idx, name in enumerate(header):
+    col_values = [r[idx] if idx < len(r) else "" for r in data_rows]
+    col_type = _infer_column_type(col_values)
+    columns.append({
+      "id": str(uuid.uuid4()),
+      "name": (name or "").strip() or f"Column {idx + 1}",
+      "type": col_type,
+      "options": [],
+    })
 
-  return blocks
+  db_rows: list[dict[str, Any]] = []
+  for row in data_rows:
+    properties: dict[str, Any] = {}
+    for i, col in enumerate(columns):
+      raw = row[i] if i < len(row) else ""
+      properties[col["id"]] = _coerce_cell_value(raw, col["type"])
+    # 첫 컬럼의 원본 문자열이 페이지 제목이 된다(숫자로 강제 변환된 값이
+    # 제목에 노출되지 않도록 row 원본을 다시 참조).
+    row_title = (row[0] if row else "").strip() or "Untitled"
+    db_rows.append({
+      "type": "db_row",
+      "title": row_title,
+      "properties": properties,
+      "children": [],
+    })
+
+  return {
+    "type": "database",
+    "title": title,
+    "color": "default",
+    "columns": columns,
+    "children": db_rows,
+  }
 
 
 def _find_parent_page_for_csv(
