@@ -1088,7 +1088,9 @@ def parse_notion_markdown(md_content: str) -> ParsedPage:
   sub_page_links: list[str] = []
   title = "Untitled"
 
-  lines = md_content.split("\n")
+  # splitlines() 는 \n / \r\n / \r 을 모두 줄 구분자로 처리하므로
+  # OS별 줄바꿈 차이에 견고하다. (CPython str.splitlines docs 참조)
+  lines = md_content.splitlines()
   i = 0
 
   while i < len(lines):
