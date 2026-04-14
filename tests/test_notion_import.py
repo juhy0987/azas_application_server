@@ -25,7 +25,9 @@ from app.services.notion_import import (
   _is_image_file,
   _make_block,
   _md_convert_inline,
-  _parse_csv_to_blocks,
+  _coerce_cell_value,
+  _infer_column_type,
+  _parse_csv_to_database,
   extract_and_parse_zip,
   parse_notion_html,
   parse_notion_markdown,
@@ -976,51 +978,120 @@ class TestNestedZip:
 # ── CSV 파싱 테스트 ──────────────────────────────────────────────────────────
 
 class TestCsvParsing:
-  """CSV 데이터베이스 파싱 테스트."""
+  """CSV → DatabaseBlock 파싱 테스트 (이슈 #69: Notion DB 연계 정합성)."""
 
-  def test_csv_to_blocks(self):
+  def test_csv_to_database_block(self):
+    """CSV가 database 블록(+ db_row children)으로 변환된다."""
     csv_text = "Name,Score\nAlice,100\nBob,95"
-    blocks = _parse_csv_to_blocks(csv_text)
-    # 헤더 + 구분선 + 2 데이터 행 = 4 블록
-    assert len(blocks) == 4
-    assert blocks[0]["type"] == "text"
-    assert blocks[0]["level"] == 3
-    assert "Name" in blocks[0]["text"]
-    assert blocks[1]["type"] == "divider"
+    db = _parse_csv_to_database(csv_text, title="Scores")
 
-  def test_empty_csv(self):
-    blocks = _parse_csv_to_blocks("")
-    assert blocks == []
+    assert db is not None
+    assert db["type"] == "database"
+    assert db["title"] == "Scores"
+    assert db["color"] == "default"
+    assert len(db["columns"]) == 2
+    assert db["columns"][0]["name"] == "Name"
+    assert db["columns"][1]["name"] == "Score"
+    # 각 컬럼에 고유 id가 부여되어야 한다
+    col_ids = [c["id"] for c in db["columns"]]
+    assert len(set(col_ids)) == 2
 
-  def test_csv_in_zip_attached_to_parent(self):
-    """ZIP 내 CSV가 부모 페이지에 블록으로 추가됩니다."""
-    md_content = "# Project\n\n- [DB](DB%20abc123.csv)"
+    rows = db["children"]
+    assert len(rows) == 2
+    assert all(r["type"] == "db_row" for r in rows)
+    # 제목은 첫 컬럼(Name) 값에서 파생
+    assert rows[0]["title"] == "Alice"
+    assert rows[1]["title"] == "Bob"
+    # properties는 column_id → 값 매핑
+    name_id, score_id = col_ids
+    assert rows[0]["properties"][name_id] == "Alice"
+    # Score는 숫자 컬럼으로 추론되어 int로 coerce
+    assert rows[0]["properties"][score_id] == 100
+
+  def test_empty_csv_returns_none(self):
+    assert _parse_csv_to_database("", title="X") is None
+    # 공백만 있는 CSV도 None
+    assert _parse_csv_to_database("\n,\n", title="X") is None
+
+  def test_header_only_csv(self):
+    """헤더만 있는 CSV도 빈 database로 생성된다(스키마만 유지)."""
+    db = _parse_csv_to_database("A,B", title="Empty")
+    assert db is not None
+    assert len(db["columns"]) == 2
+    assert db["children"] == []
+
+  def test_column_name_fallback(self):
+    """헤더가 비어있으면 Column N 으로 대체된다."""
+    db = _parse_csv_to_database(",Score\n,10", title="X")
+    assert db is not None
+    assert db["columns"][0]["name"] == "Column 1"
+    assert db["columns"][1]["name"] == "Score"
+
+  def test_ragged_rows_are_filled(self):
+    """열 수가 부족한 행은 빈 값으로 채워진다(데이터 유실 방지)."""
+    db = _parse_csv_to_database("A,B,C\n1,2\n3,4,5", title="X")
+    assert db is not None
+    row0 = db["children"][0]["properties"]
+    ids = [c["id"] for c in db["columns"]]
+    # 세 번째 컬럼은 빈 값
+    assert row0[ids[2]] in ("", None)
+
+  def test_infer_column_type_number(self):
+    assert _infer_column_type(["1", "2", "3.14"]) == "number"
+    # 천 단위 콤마 허용
+    assert _infer_column_type(["1,000", "2,500"]) == "number"
+
+  def test_infer_column_type_checkbox(self):
+    assert _infer_column_type(["Yes", "No", "yes"]) == "checkbox"
+    assert _infer_column_type(["true", "false"]) == "checkbox"
+
+  def test_infer_column_type_text_default(self):
+    assert _infer_column_type(["Alice", "Bob"]) == "text"
+    # 일부만 숫자면 text
+    assert _infer_column_type(["1", "two"]) == "text"
+    # 빈 값만 있는 경우도 text
+    assert _infer_column_type(["", ""]) == "text"
+
+  def test_coerce_cell_value(self):
+    assert _coerce_cell_value("42", "number") == 42
+    assert _coerce_cell_value("3.14", "number") == 3.14
+    assert _coerce_cell_value("", "number") is None
+    # 숫자로 변환 실패 시 원본 유지 (폴백)
+    assert _coerce_cell_value("N/A", "number") == "N/A"
+    assert _coerce_cell_value("Yes", "checkbox") is True
+    assert _coerce_cell_value("No", "checkbox") is False
+    assert _coerce_cell_value("Hello", "text") == "Hello"
+
+  def test_csv_in_zip_attached_as_database(self):
+    """ZIP 내 CSV가 부모 페이지에 database 블록으로 추가된다."""
+    md_content = "# Project\n\n- [DB](DB%20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv)"
     csv_content = "Task,Status\nDo thing,Done"
     zip_data = _make_zip({
       "Root/page.md": md_content,
-      "Root/DB abc123.csv": csv_content,
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": csv_content,
     })
     result = extract_and_parse_zip(zip_data)
-    # CSV 블록이 페이지에 추가되었는지 확인
     all_blocks = []
     for page in result.pages:
       all_blocks.extend(page["blocks"])
-    # CSV 헤더 텍스트가 포함된 블록이 있어야 함
-    assert any("Task" in b.get("text", "") for b in all_blocks)
+    db_blocks = [b for b in all_blocks if b.get("type") == "database"]
+    assert len(db_blocks) == 1
+    assert db_blocks[0]["title"] == "DB"
+    assert [c["name"] for c in db_blocks[0]["columns"]] == ["Task", "Status"]
+    assert len(db_blocks[0]["children"]) == 1
 
   def test_all_csv_excluded(self):
-    """_all.csv 파일은 중복이므로 제외됩니다."""
+    """_all.csv 파일은 중복이므로 제외된다."""
     zip_data = _make_zip({
       "Root/page.md": "# Title\n\nText",
-      "Root/DB abc123.csv": "A,B\n1,2",
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": "A,B\n1,2",
       "Root/DB abc123_all.csv": "A,B\n1,2",
     })
     result = extract_and_parse_zip(zip_data)
-    # _all.csv가 처리되지 않았으므로 CSV 블록은 한 세트만 존재
-    csv_headers = [b for page in result.pages
-                   for b in page["blocks"]
-                   if b.get("level") == 3 and "A" in b.get("text", "")]
-    assert len(csv_headers) == 1
+    db_blocks = [b for page in result.pages
+                 for b in page["blocks"]
+                 if b.get("type") == "database"]
+    assert len(db_blocks) == 1
 
 
 # ── Markdown ZIP import API 테스트 ──────────────────────────────────────────
@@ -1068,3 +1139,64 @@ class TestMarkdownImportAPI:
     assert "text" in types
     assert "divider" in types
     assert "code" in types
+
+
+# ── CSV → DatabaseBlock 영속화 통합 테스트 ─────────────────────────────────────
+
+class TestCsvDatabasePersistence:
+  """import_pages가 database/db_row 블록을 올바르게 영속화하는지 검증한다.
+
+  이슈 #69 DoD: Notion 연계 시나리오에서 DB 동작이 기대값과 일치한다.
+  """
+
+  def _build_zip(self, csv_content: str) -> bytes:
+    """페이지 + CSV로 구성된 최소 Notion export ZIP을 생성한다."""
+    md_content = (
+      "# Project\n\n- [DB](DB%20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv)"
+    )
+    return _make_zip({
+      "Root/page.md": md_content,
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": csv_content,
+    })
+
+  def test_import_creates_database_block_with_rows(self, client):
+    zip_data = self._build_zip("Name,Score\nAlice,100\nBob,95")
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    assert resp.status_code == 201
+    doc_id = resp.json()["document_id"]
+    doc = client.get(f"/api/documents/{doc_id}").json()
+
+    db_blocks = [b for b in doc["blocks"] if b["type"] == "database"]
+    assert len(db_blocks) == 1
+    db = db_blocks[0]
+    assert db["title"] == "DB"
+    assert [c["name"] for c in db["columns"]] == ["Name", "Score"]
+    assert [c["type"] for c in db["columns"]] == ["text", "number"]
+    # db_row는 database의 자식으로 복원된다(DatabaseBlock.rows)
+    assert len(db["rows"]) == 2
+    row_titles = sorted(r["title"] for r in db["rows"])
+    assert row_titles == ["Alice", "Bob"]
+
+  def test_db_rows_have_child_documents(self, client):
+    """각 db_row는 자체 문서를 가지며 properties가 보존된다."""
+    zip_data = self._build_zip("Name,Done\nTask A,Yes\nTask B,No")
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    doc_id = resp.json()["document_id"]
+    doc = client.get(f"/api/documents/{doc_id}").json()
+    db = next(b for b in doc["blocks"] if b["type"] == "database")
+    done_col_id = next(c["id"] for c in db["columns"] if c["name"] == "Done")
+
+    # checkbox 타입으로 추론되어 bool로 coerce
+    done_values = {r["title"]: r["properties"][done_col_id] for r in db["rows"]}
+    assert done_values == {"Task A": True, "Task B": False}
+
+    # 각 행은 독립 문서이므로 GET /api/documents/<row.document_id>이 200
+    for row in db["rows"]:
+      row_doc = client.get(f"/api/documents/{row['document_id']}")
+      assert row_doc.status_code == 200
