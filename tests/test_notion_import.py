@@ -1044,6 +1044,11 @@ class TestCsvParsing:
   def test_infer_column_type_checkbox(self):
     assert _infer_column_type(["Yes", "No", "yes"]) == "checkbox"
     assert _infer_column_type(["true", "false"]) == "checkbox"
+    # "0"/"1" 만 있는 컬럼은 숫자 파싱 가능하더라도 checkbox 로 우선 판정
+    assert _infer_column_type(["0", "1", "1", "0"]) == "checkbox"
+    assert _infer_column_type(["1", "1"]) == "checkbox"
+    # 2 이상의 숫자가 섞이면 checkbox 토큰 집합을 벗어나 number 유지
+    assert _infer_column_type(["0", "1", "2"]) == "number"
 
   def test_infer_column_type_text_default(self):
     assert _infer_column_type(["Alice", "Bob"]) == "text"

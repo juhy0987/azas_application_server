@@ -1343,11 +1343,17 @@ def _infer_column_type(values: list[str]) -> str:
   non_empty = [v.strip() for v in values if v and v.strip()]
   if not non_empty:
     return "text"
-  if all(_is_number_like(v) for v in non_empty):
-    return "number"
+  # checkbox 판정을 number 보다 먼저 수행한다.
+  # Notion 은 불리언을 "0"/"1" 로 export 하기도 하는데, 두 토큰은 숫자로도
+  # 파싱되어 number 로 오추론되는 문제가 있었다. 값 집합이 checkbox 토큰
+  # 안에 포함되는 경우에 한해 checkbox 로 판정한다.
+  # Ref: XML Schema Boolean canonical lexical form("0","1") —
+  #   https://www.w3.org/TR/xmlschema-2/#boolean
   lowered = {v.lower() for v in non_empty}
   if lowered <= (_CHECKBOX_TRUE_TOKENS | _CHECKBOX_FALSE_TOKENS):
     return "checkbox"
+  if all(_is_number_like(v) for v in non_empty):
+    return "number"
   return "text"
 
 
