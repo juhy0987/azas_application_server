@@ -25,7 +25,9 @@ from app.services.notion_import import (
   _is_image_file,
   _make_block,
   _md_convert_inline,
-  _parse_csv_to_blocks,
+  _coerce_cell_value,
+  _infer_column_type,
+  _parse_csv_to_database,
   extract_and_parse_zip,
   parse_notion_html,
   parse_notion_markdown,
@@ -976,51 +978,319 @@ class TestNestedZip:
 # ── CSV 파싱 테스트 ──────────────────────────────────────────────────────────
 
 class TestCsvParsing:
-  """CSV 데이터베이스 파싱 테스트."""
+  """CSV → DatabaseBlock 파싱 테스트 (이슈 #69: Notion DB 연계 정합성)."""
 
-  def test_csv_to_blocks(self):
+  def test_csv_to_database_block(self):
+    """CSV가 database 블록(+ db_row children)으로 변환된다."""
     csv_text = "Name,Score\nAlice,100\nBob,95"
-    blocks = _parse_csv_to_blocks(csv_text)
-    # 헤더 + 구분선 + 2 데이터 행 = 4 블록
-    assert len(blocks) == 4
-    assert blocks[0]["type"] == "text"
-    assert blocks[0]["level"] == 3
-    assert "Name" in blocks[0]["text"]
-    assert blocks[1]["type"] == "divider"
+    db = _parse_csv_to_database(csv_text, title="Scores")
 
-  def test_empty_csv(self):
-    blocks = _parse_csv_to_blocks("")
-    assert blocks == []
+    assert db is not None
+    assert db["type"] == "database"
+    assert db["title"] == "Scores"
+    assert db["color"] == "default"
+    assert len(db["columns"]) == 2
+    assert db["columns"][0]["name"] == "Name"
+    assert db["columns"][1]["name"] == "Score"
+    # 각 컬럼에 고유 id가 부여되어야 한다
+    col_ids = [c["id"] for c in db["columns"]]
+    assert len(set(col_ids)) == 2
 
-  def test_csv_in_zip_attached_to_parent(self):
-    """ZIP 내 CSV가 부모 페이지에 블록으로 추가됩니다."""
-    md_content = "# Project\n\n- [DB](DB%20abc123.csv)"
+    rows = db["children"]
+    assert len(rows) == 2
+    assert all(r["type"] == "db_row" for r in rows)
+    # 제목은 첫 컬럼(Name) 값에서 파생
+    assert rows[0]["title"] == "Alice"
+    assert rows[1]["title"] == "Bob"
+    # properties는 column_id → 값 매핑
+    name_id, score_id = col_ids
+    assert rows[0]["properties"][name_id] == "Alice"
+    # Score는 숫자 컬럼으로 추론되어 int로 coerce
+    assert rows[0]["properties"][score_id] == 100
+
+  def test_empty_csv_returns_none(self):
+    assert _parse_csv_to_database("", title="X") is None
+    # 공백만 있는 CSV도 None
+    assert _parse_csv_to_database("\n,\n", title="X") is None
+
+  def test_header_only_csv(self):
+    """헤더만 있는 CSV도 빈 database로 생성된다(스키마만 유지)."""
+    db = _parse_csv_to_database("A,B", title="Empty")
+    assert db is not None
+    assert len(db["columns"]) == 2
+    assert db["children"] == []
+
+  def test_column_name_fallback(self):
+    """헤더가 비어있으면 Column N 으로 대체된다."""
+    db = _parse_csv_to_database(",Score\n,10", title="X")
+    assert db is not None
+    assert db["columns"][0]["name"] == "Column 1"
+    assert db["columns"][1]["name"] == "Score"
+
+  def test_ragged_rows_are_filled(self):
+    """열 수가 부족한 행은 빈 값으로 채워진다(데이터 유실 방지)."""
+    db = _parse_csv_to_database("A,B,C\n1,2\n3,4,5", title="X")
+    assert db is not None
+    row0 = db["children"][0]["properties"]
+    ids = [c["id"] for c in db["columns"]]
+    # 세 번째 컬럼은 빈 값
+    assert row0[ids[2]] in ("", None)
+
+  def test_infer_column_type_number(self):
+    assert _infer_column_type(["1", "2", "3.14"]) == "number"
+    # 천 단위 콤마 허용
+    assert _infer_column_type(["1,000", "2,500"]) == "number"
+
+  def test_infer_column_type_checkbox(self):
+    assert _infer_column_type(["Yes", "No", "yes"]) == "checkbox"
+    assert _infer_column_type(["true", "false"]) == "checkbox"
+    # "0"/"1" 만 있는 컬럼은 숫자 파싱 가능하더라도 checkbox 로 우선 판정
+    assert _infer_column_type(["0", "1", "1", "0"]) == "checkbox"
+    assert _infer_column_type(["1", "1"]) == "checkbox"
+    # 2 이상의 숫자가 섞이면 checkbox 토큰 집합을 벗어나 number 유지
+    assert _infer_column_type(["0", "1", "2"]) == "number"
+
+  def test_infer_column_type_text_default(self):
+    assert _infer_column_type(["Alice", "Bob"]) == "text"
+    # 일부만 숫자면 text
+    assert _infer_column_type(["1", "two"]) == "text"
+    # 빈 값만 있는 경우도 text
+    assert _infer_column_type(["", ""]) == "text"
+
+  def test_coerce_cell_value(self):
+    assert _coerce_cell_value("42", "number") == 42
+    assert _coerce_cell_value("3.14", "number") == 3.14
+    assert _coerce_cell_value("", "number") is None
+    # 숫자로 변환 실패 시 원본 유지 (폴백)
+    assert _coerce_cell_value("N/A", "number") == "N/A"
+    assert _coerce_cell_value("Yes", "checkbox") is True
+    assert _coerce_cell_value("No", "checkbox") is False
+    assert _coerce_cell_value("Hello", "text") == "Hello"
+
+  def test_csv_in_zip_attached_as_database(self):
+    """ZIP 내 CSV가 부모 페이지에 database 블록으로 추가된다."""
+    md_content = "# Project\n\n- [DB](DB%20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv)"
     csv_content = "Task,Status\nDo thing,Done"
     zip_data = _make_zip({
       "Root/page.md": md_content,
-      "Root/DB abc123.csv": csv_content,
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": csv_content,
     })
     result = extract_and_parse_zip(zip_data)
-    # CSV 블록이 페이지에 추가되었는지 확인
     all_blocks = []
     for page in result.pages:
       all_blocks.extend(page["blocks"])
-    # CSV 헤더 텍스트가 포함된 블록이 있어야 함
-    assert any("Task" in b.get("text", "") for b in all_blocks)
+    db_blocks = [b for b in all_blocks if b.get("type") == "database"]
+    assert len(db_blocks) == 1
+    assert db_blocks[0]["title"] == "DB"
+    assert [c["name"] for c in db_blocks[0]["columns"]] == ["Task", "Status"]
+    assert len(db_blocks[0]["children"]) == 1
+
+  def test_row_pages_absorbed_into_db_rows(self):
+    """CSV 동반 row .md 파일이 db_row의 children으로 흡수된다.
+
+    동일 행이 부모 페이지의 하위 PageBlock 과 database 의 db_row 로
+    중복 생성되면 안 된다 (이슈 #69).
+    """
+    uuid_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    row_uuid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    md_parent = f"# Project\n\n- [Tasks](Tasks%20{uuid_hash}.csv)"
+    md_row_a = "# Task A\n\nDetail for A"
+    csv_content = "Name,Status\nTask A,Done\nTask B,Todo"
+    # Notion export 의 실제 레이아웃: 동반 디렉터리에는 UUID 해시가 없다.
+    zip_data = _make_zip({
+      "Root/page.md": md_parent,
+      f"Root/Tasks {uuid_hash}.csv": csv_content,
+      f"Root/Tasks/Task A {row_uuid}.md": md_row_a,
+    })
+    result = extract_and_parse_zip(zip_data)
+
+    # row 페이지는 pages 리스트에서 제거되어 있어야 한다
+    remaining_paths = [p["path"] for p in result.pages]
+    assert not any("Task A" in path for path in remaining_paths)
+
+    # database 블록의 Task A 행 children 에 원본 블록이 흡수되어야 한다
+    db_blocks = [b for p in result.pages for b in p["blocks"]
+                 if b.get("type") == "database"]
+    assert len(db_blocks) == 1
+    rows_by_title = {r["title"]: r for r in db_blocks[0]["children"]}
+    assert set(rows_by_title) == {"Task A", "Task B"}
+    # 흡수된 Task A는 "Detail for A" 텍스트 블록을 children 으로 가진다
+    assert any(
+      b.get("type") == "text" and "Detail for A" in b.get("text", "")
+      for b in rows_by_title["Task A"]["children"]
+    )
+    # 매칭 페이지가 없는 Task B 는 children 이 비어있다 (신규 생성)
+    assert rows_by_title["Task B"]["children"] == []
+
+  def test_row_page_absorbed_with_korean_real_notion_layout(self):
+    """Notion 실제 export 레이아웃 회귀 테스트.
+
+    예: "범진님이 주신 팁" 페이지가 "자료 정리 <uuid>.csv" 데이터베이스에
+    속하는 형태. CSV 와 같은 디렉터리에 UUID 없는 이름의 자매 폴더가 있고,
+    그 안에 row 상세 md 가 위치한다.
+    """
+    csv_uuid = "2b7b6f198639811fa1c1de11af2a0139"
+    row_uuid = "2b7b6f1986398128874fe950e502335a"
+    csv_rel = f"자료 정리 {csv_uuid}.csv"
+    parent_md = f"# 푸항항\n\n- [자료 정리]({csv_rel.replace(' ', '%20')})"
+    row_md = "# 범진님이 주신 팁\n\n실전 팁 본문"
+    csv_body = "이름,카테고리\n범진님이 주신 팁,팁"
+
+    zip_data = _make_zip({
+      "푸항항.md": parent_md,
+      f"푸항항/{csv_rel}": csv_body,
+      f"푸항항/자료 정리/범진님이 주신 팁 {row_uuid}.md": row_md,
+    })
+    result = extract_and_parse_zip(zip_data)
+
+    # row 페이지는 독립 페이지로 남아있지 않아야 한다
+    remaining_titles = [p["title"] for p in result.pages]
+    assert "범진님이 주신 팁" not in remaining_titles
+
+    db_blocks = [b for p in result.pages for b in p["blocks"]
+                 if b.get("type") == "database"]
+    assert len(db_blocks) == 1
+    rows_by_title = {r["title"]: r for r in db_blocks[0]["children"]}
+    assert "범진님이 주신 팁" in rows_by_title
+    # 흡수된 행의 children 에 본문 텍스트가 포함된다
+    assert any(
+      "실전 팁 본문" in b.get("text", "")
+      for b in rows_by_title["범진님이 주신 팁"]["children"]
+    )
+
+  def test_duplicate_row_titles_do_not_share_block_ids(self):
+    """같은 title 의 db_row 가 여러 개여도 block id 가 중복되지 않는다.
+
+    각 row 페이지는 최대 하나의 db_row 에만 흡수되어야 한다
+    (pop 기반 1:1 매칭). list 참조 공유는 영속화 시 UNIQUE 제약 충돌을
+    일으키므로 block id 집합 중복이 없음을 검증한다.
+    """
+    from collections import Counter
+
+    uuid_hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    row_uuid_a = "11111111111111111111111111111111"
+    # CSV 에 같은 title 이 두 번 등장 (Notion 에서는 드물지만 가능)
+    csv_body = "Name,Status\nDup,Done\nDup,Todo"
+    zip_data = _make_zip({
+      "Root/page.md": f"# P\n\n- [T](T%20{uuid_hash}.csv)",
+      f"Root/T {uuid_hash}.csv": csv_body,
+      f"Root/T/Dup {row_uuid_a}.md": "# Dup\n\nOnly one detail page",
+    })
+    result = extract_and_parse_zip(zip_data)
+
+    ids: list[str] = []
+    def walk(bs):
+      for b in bs:
+        if b.get("id"):
+          ids.append(b["id"])
+        for c in b.get("children") or []:
+          walk([c])
+    for p in result.pages:
+      walk(p["blocks"])
+    assert not [k for k, v in Counter(ids).items() if v > 1], (
+      "파싱 결과에 동일 block id 가 중복 등장해선 안 된다"
+    )
+
+  def test_duplicate_title_pages_all_absorbed(self):
+    """CSV 에 동일 title 의 row 가 여러 개이면 해당 수만큼 페이지가 흡수된다.
+
+    기존 setdefault 로직은 첫 페이지만 매칭되어 나머지가 잔류했다.
+    Notion 회의록 DB 의 "백엔드 정기 멘토링" 처럼 반복되는 이름에 대응.
+    """
+    uuid_hash = "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0"
+    uuid_a = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    uuid_b = "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+    uuid_c = "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+    csv_body = "Name,When\nMtg,D1\nMtg,D2\nMtg,D3"
+    zip_data = _make_zip({
+      "Root/page.md": f"# P\n\n- [M](M%20{uuid_hash}.csv)",
+      f"Root/M {uuid_hash}.csv": csv_body,
+      f"Root/M/Mtg {uuid_a}.md": "# Mtg\n\nalpha",
+      f"Root/M/Mtg {uuid_b}.md": "# Mtg\n\nbravo",
+      f"Root/M/Mtg {uuid_c}.md": "# Mtg\n\ncharlie",
+    })
+    result = extract_and_parse_zip(zip_data)
+    # 잔류 없음
+    assert not [p for p in result.pages if p["title"] == "Mtg"]
+    # 세 db_row 모두 고유 상세 블록을 가진다
+    db = next(b for p in result.pages for b in p["blocks"] if b.get("type") == "database")
+    texts = []
+    for row in db["children"]:
+      for child in row["children"]:
+        if child.get("type") == "text":
+          texts.append(child.get("text", ""))
+    assert {"alpha", "bravo", "charlie"} <= set(texts)
+
+  def test_orphan_companion_pages_promoted_to_db_rows(self):
+    """CSV 에 대응 row 가 없는 동반 디렉터리 페이지도 합성 db_row 로 승격된다.
+
+    Notion 의 뷰 필터/이동 등으로 CSV 와 상세 페이지 수가 어긋날 수 있다.
+    이런 orphan 도 DB 영역 외부로 새지 않고 database 블록 내부 row 로 흡수해야 한다.
+    """
+    uuid_hash = "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0"
+    orphan_uuid = "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"
+    csv_body = "Name,Tag\nAlice,x"  # Bob 없음
+    zip_data = _make_zip({
+      "Root/page.md": f"# P\n\n- [D](D%20{uuid_hash}.csv)",
+      f"Root/D {uuid_hash}.csv": csv_body,
+      f"Root/D/Alice {orphan_uuid}.md": "# Alice\n\nhello",
+      f"Root/D/Bob {orphan_uuid[::-1]}.md": "# Bob\n\norphan body",
+    })
+    result = extract_and_parse_zip(zip_data)
+    # 잔류 페이지 없음
+    assert not [p for p in result.pages if p["title"] in ("Alice", "Bob")]
+    db = next(b for p in result.pages for b in p["blocks"] if b.get("type") == "database")
+    row_titles = [r["title"] for r in db["children"]]
+    assert row_titles == ["Alice", "Bob"]  # Bob 은 끝에 추가된 합성 row
+    bob = next(r for r in db["children"] if r["title"] == "Bob")
+    # 합성 row 의 properties 는 컬럼 id 를 키로, 타입별 기본값으로 채워진다
+    # (_coerce_cell_value 와 동일 규칙: text→"", number→None, checkbox→False)
+    assert set(bob["properties"].keys()) == {c["id"] for c in db["columns"]}
+    for col in db["columns"]:
+      expected = {"text": "", "number": None, "checkbox": False}[col["type"]]
+      assert bob["properties"][col["id"]] == expected
+    # 원본 상세 블록을 children 으로 가진다
+    assert any("orphan body" in b.get("text", "") for b in bob["children"])
+
+  def test_row_pages_merged_end_to_end(self, client):
+    """API 전체 플로우: row 페이지가 db_row 에만 존재하고 트리에 중복되지 않는다."""
+    uuid_hash = "cccccccccccccccccccccccccccccccc"
+    row_uuid = "dddddddddddddddddddddddddddddddd"
+    zip_data = _make_zip({
+      "Root/page.md": f"# Parent\n\n- [Tasks](Tasks%20{uuid_hash}.csv)",
+      f"Root/Tasks {uuid_hash}.csv": "Name,Score\nAlice,100",
+      f"Root/Tasks/Alice {row_uuid}.md": "# Alice\n\nhello",
+    })
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    assert resp.status_code == 201
+    doc = client.get(f"/api/documents/{resp.json()['document_id']}").json()
+
+    # 루트 문서에는 page 블록(=row 페이지 참조)이 없어야 한다 — db 블록 하나만.
+    block_types = [b["type"] for b in doc["blocks"]]
+    assert "database" in block_types
+    assert "page" not in block_types
+
+    # db_row 는 있고, 그 문서를 조회하면 "hello" 블록이 존재한다.
+    db = next(b for b in doc["blocks"] if b["type"] == "database")
+    assert len(db["rows"]) == 1
+    row_doc = client.get(f"/api/documents/{db['rows'][0]['document_id']}").json()
+    assert any("hello" in b.get("text", "") for b in row_doc["blocks"])
 
   def test_all_csv_excluded(self):
-    """_all.csv 파일은 중복이므로 제외됩니다."""
+    """_all.csv 파일은 중복이므로 제외된다."""
     zip_data = _make_zip({
       "Root/page.md": "# Title\n\nText",
-      "Root/DB abc123.csv": "A,B\n1,2",
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": "A,B\n1,2",
       "Root/DB abc123_all.csv": "A,B\n1,2",
     })
     result = extract_and_parse_zip(zip_data)
-    # _all.csv가 처리되지 않았으므로 CSV 블록은 한 세트만 존재
-    csv_headers = [b for page in result.pages
-                   for b in page["blocks"]
-                   if b.get("level") == 3 and "A" in b.get("text", "")]
-    assert len(csv_headers) == 1
+    db_blocks = [b for page in result.pages
+                 for b in page["blocks"]
+                 if b.get("type") == "database"]
+    assert len(db_blocks) == 1
 
 
 # ── Markdown ZIP import API 테스트 ──────────────────────────────────────────
@@ -1068,3 +1338,64 @@ class TestMarkdownImportAPI:
     assert "text" in types
     assert "divider" in types
     assert "code" in types
+
+
+# ── CSV → DatabaseBlock 영속화 통합 테스트 ─────────────────────────────────────
+
+class TestCsvDatabasePersistence:
+  """import_pages가 database/db_row 블록을 올바르게 영속화하는지 검증한다.
+
+  이슈 #69 DoD: Notion 연계 시나리오에서 DB 동작이 기대값과 일치한다.
+  """
+
+  def _build_zip(self, csv_content: str) -> bytes:
+    """페이지 + CSV로 구성된 최소 Notion export ZIP을 생성한다."""
+    md_content = (
+      "# Project\n\n- [DB](DB%20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv)"
+    )
+    return _make_zip({
+      "Root/page.md": md_content,
+      "Root/DB aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv": csv_content,
+    })
+
+  def test_import_creates_database_block_with_rows(self, client):
+    zip_data = self._build_zip("Name,Score\nAlice,100\nBob,95")
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    assert resp.status_code == 201
+    doc_id = resp.json()["document_id"]
+    doc = client.get(f"/api/documents/{doc_id}").json()
+
+    db_blocks = [b for b in doc["blocks"] if b["type"] == "database"]
+    assert len(db_blocks) == 1
+    db = db_blocks[0]
+    assert db["title"] == "DB"
+    assert [c["name"] for c in db["columns"]] == ["Name", "Score"]
+    assert [c["type"] for c in db["columns"]] == ["text", "number"]
+    # db_row는 database의 자식으로 복원된다(DatabaseBlock.rows)
+    assert len(db["rows"]) == 2
+    row_titles = sorted(r["title"] for r in db["rows"])
+    assert row_titles == ["Alice", "Bob"]
+
+  def test_db_rows_have_child_documents(self, client):
+    """각 db_row는 자체 문서를 가지며 properties가 보존된다."""
+    zip_data = self._build_zip("Name,Done\nTask A,Yes\nTask B,No")
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    doc_id = resp.json()["document_id"]
+    doc = client.get(f"/api/documents/{doc_id}").json()
+    db = next(b for b in doc["blocks"] if b["type"] == "database")
+    done_col_id = next(c["id"] for c in db["columns"] if c["name"] == "Done")
+
+    # checkbox 타입으로 추론되어 bool로 coerce
+    done_values = {r["title"]: r["properties"][done_col_id] for r in db["rows"]}
+    assert done_values == {"Task A": True, "Task B": False}
+
+    # 각 행은 독립 문서이므로 GET /api/documents/<row.document_id>이 200
+    for row in db["rows"]:
+      row_doc = client.get(f"/api/documents/{row['document_id']}")
+      assert row_doc.status_code == 200

@@ -886,31 +886,44 @@ def extract_and_parse_zip(zip_data: bytes) -> ImportResult:
       logger.error("파일 파싱 실패: %s — %s", file_path, exc)
       overall_report.warnings.append(f"파일 파싱 실패: {file_path}")
 
-  # CSV 파일 → 테이블 블록으로 변환하여 관련 페이지에 추가
+  # CSV 파일 → DatabaseBlock(+db_row)으로 변환하여 관련 페이지에 추가
+  # (이슈 #69: Notion DB 연계 정합성 — CSV는 Notion 데이터베이스의 export
+  # 산출물이므로 내부 DatabaseBlock 구조에 직접 매핑한다)
   for csv_path in csv_files:
     try:
       raw = all_files[csv_path]
       csv_text = raw.decode("utf-8-sig", errors="replace")
-      csv_blocks = _parse_csv_to_blocks(csv_text)
-      if csv_blocks:
-        csv_stem = PurePosixPath(csv_path).stem
-        # UUID 해시 제거 — Notion export는 "제목 UUID해시.csv" 패턴
-        csv_title = re.sub(r"\s+[0-9a-f]{32}$", "", csv_stem).strip() or csv_stem
+      csv_stem = PurePosixPath(csv_path).stem
+      # UUID 해시 제거 — Notion export는 "제목 UUID해시.csv" 패턴
+      csv_title = re.sub(r"\s+[0-9a-f]{32}$", "", csv_stem).strip() or csv_stem
 
-        # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
-        parent_page = _find_parent_page_for_csv(csv_path, pages)
-        if parent_page:
-          parent_page["blocks"].extend(csv_blocks)
-        else:
-          # 부모를 못 찾으면 독립 페이지로 생성
-          pages.append({
-            "path": csv_path,
-            "title": csv_title,
-            "blocks": csv_blocks,
-            "sub_page_links": [],
-          })
-        overall_report.converted += len(csv_blocks)
-        overall_report.total_elements += len(csv_blocks)
+      db_block = _parse_csv_to_database(csv_text, csv_title)
+      if db_block is None:
+        continue
+
+      # 동반 row 페이지를 db_row children 으로 흡수 (이슈 #69: 중복 생성 방지)
+      # ※ 부모 매칭보다 먼저 수행해야 pages 리스트에서 row 페이지가 빠진
+      #   상태로 parent 후보를 평가한다 (동일 디렉터리 단일 페이지 fallback
+      #   로직이 row 페이지를 부모로 오판하지 않도록).
+      _absorb_row_pages_into_database(csv_path, db_block, pages)
+
+      # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
+      parent_page = _find_parent_page_for_csv(csv_path, pages)
+      if parent_page:
+        parent_page["blocks"].append(db_block)
+      else:
+        # 부모를 못 찾으면 독립 페이지로 생성
+        pages.append({
+          "path": csv_path,
+          "title": csv_title,
+          "blocks": [db_block],
+          "sub_page_links": [],
+        })
+
+      row_count = len(db_block["children"])
+      # database 블록 1개 + db_row N개
+      overall_report.converted += 1 + row_count
+      overall_report.total_elements += 1 + row_count
     except Exception as exc:
       logger.warning("CSV 파싱 실패: %s — %s", csv_path, exc)
       overall_report.warnings.append(f"CSV 파싱 실패: {csv_path}")
@@ -1295,37 +1308,231 @@ def parse_notion_markdown(md_content: str) -> ParsedPage:
 
 # ── CSV 파서 ────────────────────────────────────────────────────────────────────
 
-def _parse_csv_to_blocks(csv_text: str) -> list[dict[str, Any]]:
-  """Notion export CSV 파일을 텍스트 기반 블록으로 변환합니다.
+# Notion export CSV는 타입 메타데이터를 포함하지 않으므로, 값 샘플링 기반으로
+# 내부 DatabaseBlock 스키마의 컬럼 타입(number/checkbox/text)을 추론한다.
+# Ref: Notion Export — https://www.notion.so/help/export-your-content
 
-  Notion 데이터베이스는 CSV로 export되며, 첫 행이 컬럼 헤더입니다.
-  각 행을 파이프(|) 구분 텍스트 블록으로 변환합니다.
+_CHECKBOX_TRUE_TOKENS: frozenset[str] = frozenset(
+  {"yes", "y", "true", "1", "checked", "o", "v", "✓", "☑"}
+)
+_CHECKBOX_FALSE_TOKENS: frozenset[str] = frozenset(
+  {"no", "n", "false", "0", "unchecked", "x", "✗", "☐"}
+)
+
+
+def _is_number_like(raw: str) -> bool:
+  """숫자로 해석 가능한 문자열인지 판단한다 (천 단위 콤마 허용)."""
+  s = raw.strip().replace(",", "")
+  if not s:
+    return False
+  try:
+    float(s)
+    return True
+  except ValueError:
+    return False
+
+
+def _infer_column_type(values: list[str]) -> str:
+  """컬럼 값 샘플로부터 DatabaseBlock 컬럼 타입을 보수적으로 추론한다.
+
+  우선순위: 빈 컬럼 → text, 전부 숫자 → number, 전부 체크박스 토큰 → checkbox,
+  그 외 → text. 선택(select) 타입은 CSV만으로는 값과 단순 열거를 구분할 수
+  없어 오추론 위험이 크므로 본 MVP에서는 추론하지 않는다(이슈 #69 비호환
+  사항 항목: "스키마 차이" 표현 한계 명시).
+  """
+  non_empty = [v.strip() for v in values if v and v.strip()]
+  if not non_empty:
+    return "text"
+  # checkbox 판정을 number 보다 먼저 수행한다.
+  # Notion 은 불리언을 "0"/"1" 로 export 하기도 하는데, 두 토큰은 숫자로도
+  # 파싱되어 number 로 오추론되는 문제가 있었다. 값 집합이 checkbox 토큰
+  # 안에 포함되는 경우에 한해 checkbox 로 판정한다.
+  # Ref: XML Schema Boolean canonical lexical form("0","1") —
+  #   https://www.w3.org/TR/xmlschema-2/#boolean
+  lowered = {v.lower() for v in non_empty}
+  if lowered <= (_CHECKBOX_TRUE_TOKENS | _CHECKBOX_FALSE_TOKENS):
+    return "checkbox"
+  if all(_is_number_like(v) for v in non_empty):
+    return "number"
+  return "text"
+
+
+def _coerce_cell_value(raw: str, col_type: str) -> Any:
+  """원본 문자열을 컬럼 타입에 맞는 Python 값으로 변환한다.
+
+  변환 실패 시 원본 문자열을 그대로 반환하여 데이터 유실을 방지한다
+  (이슈 #69: "누락/불일치 데이터에 대한 폴백 정책").
+  """
+  s = (raw or "").strip()
+  if col_type == "number":
+    if not s:
+      return None
+    cleaned = s.replace(",", "")
+    try:
+      return int(cleaned) if cleaned.lstrip("-").isdigit() else float(cleaned)
+    except ValueError:
+      return s
+  if col_type == "checkbox":
+    return s.lower() in _CHECKBOX_TRUE_TOKENS
+  return s
+
+
+def _parse_csv_to_database(csv_text: str, title: str) -> dict[str, Any] | None:
+  """Notion export CSV를 내부 DatabaseBlock(+db_row) 트리로 변환한다.
+
+  변환 규칙:
+    - 첫 행을 컬럼 스키마로 사용하며, 각 컬럼에 고유 UUID를 부여한다.
+    - 컬럼 타입은 값 샘플로부터 추론한다 (`_infer_column_type`).
+    - 데이터 행은 각각 `db_row` 블록으로 만들며, `properties`는
+      `{column_id: coerced_value}` 형태로 저장한다.
+    - 첫 컬럼의 값을 해당 행(페이지)의 제목으로 사용한다
+      (Notion 데이터베이스의 Name 컬럼 관례를 따른다).
 
   Args:
-    csv_text: CSV 파일 내용 문자열.
+    csv_text: UTF-8로 디코딩된 CSV 본문.
+    title: 생성될 database 블록의 제목(파일명 기반).
 
   Returns:
-    블록 dict 리스트. 빈 CSV이면 빈 리스트.
+    database 블록 dict (children에 db_row 목록 포함). 빈 CSV이면 None.
   """
   reader = csv.reader(io.StringIO(csv_text))
   rows = list(reader)
-  if not rows:
-    return []
+  if not rows or not any(any(cell.strip() for cell in r) for r in rows):
+    return None
 
-  blocks: list[dict[str, Any]] = []
-
-  # 헤더 행
   header = rows[0]
-  if any(cell.strip() for cell in header):
-    blocks.append(_make_block("text", text=" | ".join(header), level=3))
-    blocks.append(_make_block("divider"))
+  data_rows = [r for r in rows[1:] if any(cell.strip() for cell in r)]
 
-  # 데이터 행
-  for row in rows[1:]:
-    if any(cell.strip() for cell in row):
-      blocks.append(_make_block("text", text=" | ".join(row)))
+  columns: list[dict[str, Any]] = []
+  for idx, name in enumerate(header):
+    col_values = [r[idx] if idx < len(r) else "" for r in data_rows]
+    col_type = _infer_column_type(col_values)
+    columns.append({
+      "id": str(uuid.uuid4()),
+      "name": (name or "").strip() or f"Column {idx + 1}",
+      "type": col_type,
+      "options": [],
+    })
 
-  return blocks
+  db_rows: list[dict[str, Any]] = []
+  for row in data_rows:
+    properties: dict[str, Any] = {}
+    for i, col in enumerate(columns):
+      raw = row[i] if i < len(row) else ""
+      properties[col["id"]] = _coerce_cell_value(raw, col["type"])
+    # 첫 컬럼의 원본 문자열이 페이지 제목이 된다(숫자로 강제 변환된 값이
+    # 제목에 노출되지 않도록 row 원본을 다시 참조).
+    row_title = (row[0] if row else "").strip() or "Untitled"
+    db_rows.append({
+      "type": "db_row",
+      "title": row_title,
+      "properties": properties,
+      "children": [],
+    })
+
+  return {
+    "type": "database",
+    "title": title,
+    "color": "default",
+    "columns": columns,
+    "children": db_rows,
+  }
+
+
+def _absorb_row_pages_into_database(
+  csv_path: str,
+  db_block: dict[str, Any],
+  pages: list[dict[str, Any]],
+) -> None:
+  """CSV와 동반된 row .md 파일을 db_row children으로 흡수한다.
+
+  Notion은 데이터베이스를 두 가지 아티팩트로 export한다:
+    1. 요약 CSV — `Tasks <uuid>.csv`
+    2. 행 상세 페이지 — `Tasks <uuid>/<Row Title> <uuid>.md`
+
+  기존 import 로직은 두 아티팩트를 독립적으로 처리하여 동일 행이
+  (a) 부모 페이지의 하위 PageBlock 과 (b) database 블록의 db_row 로
+  중복 생성되는 문제가 있었다. 본 함수는 CSV 동반 디렉터리에 속한
+  row 페이지를 찾아 매칭된 db_row의 children 으로 이전하고,
+  `pages` 리스트에서 해당 row 페이지를 제거하여 중복을 제거한다.
+
+  매칭 규칙:
+    - Notion export 의 동반 디렉터리 이름은 CSV stem 에서 UUID 해시를
+      제거한 "깨끗한 제목"이다 (예: "자료 정리 <uuid>.csv" → "자료 정리/").
+      드물게 UUID 가 유지되는 export 도 있어 두 후보를 모두 시도한다.
+    - 후보 페이지의 title == db_row 의 title 일 때 매칭으로 본다
+      (Notion export 의 title 은 UUID 해시가 제거된 순수 제목).
+
+  Args:
+    csv_path: ZIP 내부의 CSV 경로 (예: "Root/Tasks abc...xyz.csv").
+    db_block: `_parse_csv_to_database` 결과 dict. 매칭된 db_row의
+      children 가 갱신된다.
+    pages: 현재까지 파싱된 페이지 리스트. 흡수된 페이지는 제거된다.
+  """
+  csv_pure = PurePosixPath(csv_path)
+  raw_stem = csv_pure.stem
+  clean_stem = re.sub(r"\s+[0-9a-f]{32}$", "", raw_stem).strip() or raw_stem
+
+  # UUID 가 제거된 이름을 우선하고, 원본 stem 도 허용한다 (Notion export
+  # 버전에 따라 달라지는 디렉터리 명명 차이에 대비).
+  companion_dirs = {
+    str(csv_pure.parent / clean_stem),
+    str(csv_pure.parent / raw_stem),
+  }
+
+  # 후보: 동반 디렉터리 바로 아래에 있는 페이지만 (더 깊은 중첩은 제외).
+  # Notion 은 동일 title 의 row 를 여러 개 허용하므로(예: "백엔드 정기
+  # 멘토링" 이 CSV 에 3번 등장) title 당 복수 페이지를 FIFO 로 관리한다.
+  # (기존 setdefault 방식은 첫 페이지만 매칭되어 나머지가 잔류했다.)
+  from collections import defaultdict, deque
+  title_bucket: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
+  companion_pages: list[dict[str, Any]] = []
+  for p in pages:
+    if str(PurePosixPath(p["path"]).parent) in companion_dirs:
+      title_bucket[p["title"]].append(p)
+      companion_pages.append(p)
+
+  if not companion_pages:
+    return
+
+  # 각 row 페이지는 정확히 하나의 db_row 에만 흡수되어야 한다.
+  # (같은 list 참조를 여러 db_row.children 에 할당하면, 영속화 시 동일한
+  #  block dict 들이 여러 번 INSERT 되어 `blocks.id` UNIQUE 제약이 깨진다.)
+  consumed_paths: set[str] = set()
+  for db_row in db_block["children"]:
+    bucket = title_bucket.get(db_row["title"])
+    if not bucket:
+      continue
+    matched = bucket.popleft()
+    # row 페이지의 blocks 를 db_row 의 children 으로 이전한다.
+    # (db_row 는 PageBlock 파생이므로 자체 문서에 블록이 속한다)
+    db_row["children"] = matched["blocks"]
+    consumed_paths.add(matched["path"])
+
+  # CSV 에 대응 row 가 없는 잔여 동반 페이지는 "합성 db_row" 로 승격한다.
+  # Notion 의 뷰 필터/이동/삭제 등으로 CSV 와 상세 페이지 수가 어긋나는
+  # 경우가 있는데, 이 페이지들도 DB 영역에 속하므로 외부에 방치하지 않고
+  # database 블록 내부 row 로 흡수하여 트리 정합성을 유지한다 (이슈 #69).
+  # 합성 db_row 의 properties 는 컬럼 타입별 기본값으로 초기화한다.
+  # `_coerce_cell_value("", type)` 은 number → None, checkbox → False,
+  # text → "" 를 돌려주므로 기존 CSV coerce 규칙과 일관성을 유지한다.
+  default_properties: dict[str, Any] = {
+    col["id"]: _coerce_cell_value("", col["type"])
+    for col in db_block.get("columns", [])
+  }
+  for p in companion_pages:
+    if p["path"] in consumed_paths:
+      continue
+    db_block["children"].append({
+      "type": "db_row",
+      "title": p["title"] or "Untitled",
+      "properties": dict(default_properties),  # 각 row 는 독립 dict 참조 유지
+      "children": p["blocks"],
+    })
+    consumed_paths.add(p["path"])
+
+  if consumed_paths:
+    pages[:] = [p for p in pages if p["path"] not in consumed_paths]
 
 
 def _find_parent_page_for_csv(
