@@ -1,20 +1,20 @@
-"""Notion Export HTML Import API 라우터.
+"""Notion Export Import API 라우터.
 
-Notion에서 export한 HTML 파일(단일 .html 또는 .zip 아카이브)을 업로드하면
+Notion에서 export한 파일(단일 .html / .md 또는 .zip 아카이브)을 업로드하면
 프로젝트 페이지 구조로 자동 변환합니다.
 
 엔드포인트:
-  POST /api/import/notion — Notion HTML/ZIP 파일 업로드 및 변환
+  POST /api/import/notion — Notion HTML/Markdown/ZIP 파일 업로드 및 변환
 
 Ref:
   - Notion Export 포맷: https://www.notion.so/help/export-your-content
   - FastAPI File Upload: https://fastapi.tiangolo.com/tutorial/request-files/
+  - OWASP File Upload Cheat Sheet:
+      https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
 """
 from __future__ import annotations
 
-import json
 import logging
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -38,8 +38,13 @@ router = APIRouter(prefix="/api/import", tags=["import"])
 # 업로드 크기 제한: 500 MB (Notion export ZIP은 대용량일 수 있음)
 MAX_IMPORT_BYTES = 500 * 1024 * 1024
 
-# 청크 단위 읽기 크기
+# 청크 단위 읽기 크기 (스트리밍 임시 파일에 기록)
 CHUNK_SIZE = 64 * 1024
+
+# Spool 임계치 — 이 크기까지는 메모리, 초과 시 자동으로 디스크 임시 파일에 보관
+# Ref: Python tempfile.SpooledTemporaryFile —
+#   https://docs.python.org/3/library/tempfile.html#tempfile.SpooledTemporaryFile
+SPOOL_MAX_MEMORY = 5 * 1024 * 1024  # 5 MB
 
 
 # ── 응답 모델 ────────────────────────────────────────────────────────────────────
@@ -54,6 +59,9 @@ class ImportResponse(BaseModel):
 
 
 # ── Import 엔드포인트 ────────────────────────────────────────────────────────────
+
+_ALLOWED_EXTS: tuple[str, ...] = (".html", ".htm", ".md", ".zip")
+
 
 @router.post("/notion", status_code=201, response_model=ImportResponse)
 async def import_notion(
@@ -74,38 +82,24 @@ async def import_notion(
   Raises:
     HTTPException 415: 지원하지 않는 파일 형식
     HTTPException 413: 파일 크기 초과
-    HTTPException 422: 파싱 실패
+    HTTPException 422: 파싱 실패 / 빈 파일 / 변환할 페이지 없음
+    HTTPException 500: 저장 실패
   """
   filename = file.filename or ""
   lower_name = filename.lower()
 
-  _ALLOWED_EXTS = (".html", ".htm", ".md", ".zip")
   if not any(lower_name.endswith(ext) for ext in _ALLOWED_EXTS):
     raise HTTPException(
       status_code=415,
       detail="지원하지 않는 파일 형식입니다. .html, .md 또는 .zip 파일을 업로드해주세요.",
     )
 
-  # 청크 단위로 읽어 메모리 제한 방어
-  chunks: list[bytes] = []
-  total_size = 0
-  while True:
-    chunk = await file.read(CHUNK_SIZE)
-    if not chunk:
-      break
-    total_size += len(chunk)
-    if total_size > MAX_IMPORT_BYTES:
-      raise HTTPException(
-        status_code=413,
-        detail=f"파일 크기가 {MAX_IMPORT_BYTES // (1024 * 1024)} MB를 초과합니다.",
-      )
-    chunks.append(chunk)
-
-  data = b"".join(chunks)
+  data = await _read_upload_to_bytes(file)
   if not data:
     raise HTTPException(status_code=422, detail="빈 파일입니다.")
 
-  # 파싱
+  # 파싱 단계 — ValueError는 사용자 제어 입력 검증 결과이므로 메시지 노출 OK,
+  # 그 외 예외는 내부 정보 누출 방지를 위해 로그만 남기고 일반 메시지로 응답.
   try:
     if lower_name.endswith(".zip"):
       result = extract_and_parse_zip(data)
@@ -115,19 +109,26 @@ async def import_notion(
       result = parse_single_html(data)
   except ValueError as exc:
     raise HTTPException(status_code=422, detail=str(exc))
-  except Exception as exc:
-    logger.error("Notion import 파싱 실패: %s", exc)
-    raise HTTPException(status_code=422, detail=f"파싱 중 오류가 발생했습니다: {exc}")
+  except Exception:
+    logger.exception("Notion import 파싱 실패")
+    raise HTTPException(
+      status_code=422,
+      detail="파일을 파싱하는 중 오류가 발생했습니다.",
+    )
 
   if not result.pages:
     raise HTTPException(status_code=422, detail="변환할 페이지가 없습니다.")
 
-  # DB에 문서/블록 생성
+  # DB 영속화 — 내부 예외는 클라이언트에 노출하지 않음
   try:
-    root_doc = _persist_import(result, repo)
-  except Exception as exc:
-    logger.error("Notion import 저장 실패: %s", exc)
-    raise HTTPException(status_code=500, detail=f"저장 중 오류가 발생했습니다: {exc}")
+    image_resolver = _make_image_resolver(result.image_mappings)
+    root_doc = repo.import_pages(result.pages, image_url_resolver=image_resolver)
+  except Exception:
+    logger.exception("Notion import 저장 실패")
+    raise HTTPException(
+      status_code=500,
+      detail="가져온 데이터를 저장하는 중 오류가 발생했습니다.",
+    )
 
   return ImportResponse(
     document_id=root_doc["id"],
@@ -137,226 +138,59 @@ async def import_notion(
   )
 
 
-# ── 영속화 로직 ─────────────────────────────────────────────────────────────────
+# ── 업로드 스트리밍 ─────────────────────────────────────────────────────────────
 
-def _persist_import(
-  result: ImportResult,
-  repo: SQLiteBlockRepository,
-) -> dict[str, Any]:
-  """파싱된 Import 결과를 DB에 문서/블록으로 저장합니다.
+async def _read_upload_to_bytes(file: UploadFile) -> bytes:
+  """업로드 파일을 청크 단위로 읽어 메모리 중복 없이 단일 bytes로 반환합니다.
 
-  페이지 계층 구조:
-    - 최상위 페이지 → 루트 문서
-    - 하위 페이지 → 루트 문서의 하위 PageBlock으로 연결
+  메모리 안전성:
+    - SpooledTemporaryFile에 청크를 누적 기록 → 임계치(SPOOL_MAX_MEMORY)
+      초과 시 자동으로 디스크로 spill되어 RSS 사용량 상한을 보장한다.
+    - 최종적으로 bytes 한 카피만 만들어 반환하므로 list+join() 방식 대비
+      피크 메모리가 절반 수준으로 낮아진다.
 
-  이미지 처리:
-    - ZIP 내 이미지 파일은 process_image()를 통해 저장
-    - 블록의 url 필드를 실제 저장 경로로 갱신
+  Ref: tempfile.SpooledTemporaryFile —
+    https://docs.python.org/3/library/tempfile.html#tempfile.SpooledTemporaryFile
   """
-  from app.models.orm import BlockRow, DocumentRow
+  import tempfile
 
-  session = repo._session
-
-  # 페이지 경로 → 생성된 document_id 매핑
-  path_to_doc_id: dict[str, str] = {}
-
-  # 1단계: 루트 문서 결정 — 첫 번째 페이지 또는 단일 페이지
-  first_page = result.pages[0]
-
-  # 단일 페이지인 경우 바로 루트 문서로 생성
-  if len(result.pages) == 1:
-    root_id = str(uuid.uuid4())
-    session.add(DocumentRow(
-      id=root_id,
-      title=first_page["title"],
-      subtitle="",
-      parent_id=None,
-    ))
-    session.flush()
-    path_to_doc_id[first_page["path"]] = root_id
-
-    # 이미지 URL 치환 후 블록 저장
-    _upload_images_in_blocks(first_page["blocks"], result.image_mappings)
-    _persist_blocks(session, root_id, first_page["blocks"])
-    session.commit()
-
-    return {"id": root_id, "title": first_page["title"]}
-
-  # 다중 페이지: 첫 번째 페이지를 루트 문서로, 나머지를 하위로 연결
-  root_id = str(uuid.uuid4())
-  session.add(DocumentRow(
-    id=root_id,
-    title=first_page["title"],
-    subtitle="",
-    parent_id=None,
-  ))
-  session.flush()
-  path_to_doc_id[first_page["path"]] = root_id
-
-  _upload_images_in_blocks(first_page["blocks"], result.image_mappings)
-  _persist_blocks(session, root_id, first_page["blocks"])
-
-  # 2단계: 하위 페이지 생성 및 PageBlock으로 연결
-  for page in result.pages[1:]:
-    child_doc_id = str(uuid.uuid4())
-    # 부모 문서 결정: 경로 기반 계층 탐색
-    parent_doc_id = _find_parent_doc_id(page["path"], path_to_doc_id, root_id)
-
-    session.add(DocumentRow(
-      id=child_doc_id,
-      title=page["title"],
-      subtitle="",
-      parent_id=parent_doc_id,
-    ))
-    session.flush()
-    path_to_doc_id[page["path"]] = child_doc_id
-
-    # 부모 문서에 PageBlock 추가
-    _add_page_block(session, parent_doc_id, child_doc_id, page["title"])
-
-    # 이미지 URL 치환 후 블록 저장
-    _upload_images_in_blocks(page["blocks"], result.image_mappings)
-    _persist_blocks(session, child_doc_id, page["blocks"])
-
-  session.commit()
-  return {"id": root_id, "title": first_page["title"]}
+  total = 0
+  with tempfile.SpooledTemporaryFile(max_size=SPOOL_MAX_MEMORY) as buf:
+    while True:
+      chunk = await file.read(CHUNK_SIZE)
+      if not chunk:
+        break
+      total += len(chunk)
+      if total > MAX_IMPORT_BYTES:
+        raise HTTPException(
+          status_code=413,
+          detail=f"파일 크기가 {MAX_IMPORT_BYTES // (1024 * 1024)} MB를 초과합니다.",
+        )
+      buf.write(chunk)
+    buf.seek(0)
+    return buf.read()
 
 
-def _find_parent_doc_id(
-  page_path: str,
-  path_to_doc_id: dict[str, str],
-  root_id: str,
-) -> str:
-  """페이지 경로를 기반으로 부모 문서 ID를 결정합니다.
+# ── 이미지 처리 콜백 ────────────────────────────────────────────────────────────
 
-  Notion export 디렉터리 구조에서 부모 페이지의 HTML 파일은
-  자식 페이지의 디렉터리와 같은 레벨에 위치합니다.
-
-  예시:
-    Root UUID.html          ← 루트
-    Root UUID/
-      Child UUID.html       ← Root의 자식
-      Child UUID/
-        GrandChild UUID.html  ← Child의 자식
-  """
-  from pathlib import PurePosixPath
-
-  parts = PurePosixPath(page_path).parts
-
-  # 부모 디렉터리의 HTML 파일을 역순으로 탐색
-  if len(parts) >= 2:
-    # 부모 디렉터리 이름으로 부모 HTML 파일을 매칭
-    parent_dir = str(PurePosixPath(*parts[:-1]))
-    # parent_dir + ".html" 패턴으로 부모 문서 검색
-    for registered_path, doc_id in path_to_doc_id.items():
-      reg_stem = PurePosixPath(registered_path).stem
-      if parent_dir.endswith(reg_stem):
-        return doc_id
-      # 부분 경로 매칭 — 디렉터리명이 HTML 파일명(확장자 제외)과 동일
-      reg_parts = PurePosixPath(registered_path).parts
-      if len(reg_parts) >= 1:
-        parent_dir_name = parts[-2] if len(parts) >= 2 else ""
-        if reg_parts[-1].replace(".html", "") == parent_dir_name:
-          return doc_id
-
-  return root_id
-
-
-def _add_page_block(
-  session: Any,
-  parent_doc_id: str,
-  child_doc_id: str,
-  title: str,
-) -> None:
-  """부모 문서에 하위 페이지를 가리키는 PageBlock을 추가합니다."""
-  from sqlalchemy import func, select
-
-  from app.models.orm import BlockRow
-
-  # 현재 최대 position 조회
-  max_pos = session.execute(
-    select(func.coalesce(func.max(BlockRow.position), 0))
-    .where(
-      BlockRow.document_id == parent_doc_id,
-      BlockRow.parent_block_id.is_(None),
-    )
-  ).scalar_one()
-
-  block_id = str(uuid.uuid4())
-  content = json.dumps({
-    "document_id": child_doc_id,
-    "is_reference": False,
-  }, ensure_ascii=False)
-
-  session.add(BlockRow(
-    id=block_id,
-    document_id=parent_doc_id,
-    parent_block_id=None,
-    type="page",
-    position=max_pos + 1,
-    content_json=content,
-  ))
-
-
-def _persist_blocks(
-  session: Any,
-  document_id: str,
-  blocks: list[dict[str, Any]],
-  parent_block_id: str | None = None,
-) -> None:
-  """블록 리스트를 DB에 저장합니다.
-
-  컨테이너 블록(toggle, quote, callout)의 children은 재귀적으로 처리됩니다.
-  """
-  from app.models.orm import BlockRow
-
-  for position, block in enumerate(blocks, start=1):
-    block_id = block.get("id", str(uuid.uuid4()))
-    block_type = block["type"]
-
-    # children은 content_json에서 제외 (별도 BlockRow로 저장)
-    children = block.pop("children", None)
-
-    # content_json 구성: id, type은 BlockRow 컬럼이므로 제외
-    content = {k: v for k, v in block.items() if k not in ("id", "type")}
-    content_json = json.dumps(content, ensure_ascii=False)
-
-    session.add(BlockRow(
-      id=block_id,
-      document_id=document_id,
-      parent_block_id=parent_block_id,
-      type=block_type,
-      position=position,
-      content_json=content_json,
-    ))
-
-    # 컨테이너 블록의 자식 재귀 저장
-    if children:
-      _persist_blocks(session, document_id, children, parent_block_id=block_id)
-
-
-def _upload_images_in_blocks(
-  blocks: list[dict[str, Any]],
+def _make_image_resolver(
   image_mappings: dict[str, bytes],
-) -> None:
-  """블록 내 이미지 URL을 실제 업로드된 경로로 치환합니다.
+) -> "callable[[dict[str, Any]], None]":
+  """블록 트리 순회 중 호출되어 이미지 블록의 URL을 실제 저장 경로로 갱신한다.
 
-  ZIP 내부 상대 경로로 참조된 이미지를 process_image()를 통해
-  서버에 저장하고, 블록의 url 필드를 갱신합니다.
+  ZIP 내부 상대 경로(image_mappings 키)로 참조된 이미지는 process_image()를
+  통해 서버에 저장하고, 블록의 url 필드를 갱신한다. 매핑에 없는 외부 URL은
+  그대로 둔다.
   """
-  for block in blocks:
-    if block.get("type") == "image":
-      url = block.get("url", "")
-      if url in image_mappings:
-        try:
-          img_data = image_mappings[url]
-          result = process_image(img_data)
-          block["url"] = result["url"]
-        except Exception as exc:
-          logger.warning("이미지 업로드 실패: %s — %s", url, exc)
-          block["url"] = ""
+  def resolver(block: dict[str, Any]) -> None:
+    url = block.get("url", "")
+    if not url or url not in image_mappings:
+      return
+    try:
+      processed = process_image(image_mappings[url])
+      block["url"] = processed["url"]
+    except Exception:
+      logger.warning("이미지 업로드 실패: %s", url, exc_info=True)
+      block["url"] = ""
 
-    # 재귀: 컨테이너 블록의 children
-    children = block.get("children")
-    if children:
-      _upload_images_in_blocks(children, image_mappings)
+  return resolver
