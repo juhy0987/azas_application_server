@@ -181,34 +181,33 @@ def _parse_list(tag: Tag, report: ConversionReport) -> list[dict[str, Any]]:
   for idx, li in enumerate(tag.find_all("li", recursive=False), start=1):
     report.total_elements += 1
 
+    # 중첩 <ul>/<ol> 은 별도 블록으로 처리하므로 본 li의 텍스트 추출 시 제외한다.
+    # _extract_inline_text() 가 자식을 재귀 탐색하기 때문에 사전에 분리하지 않으면
+    # 부모 li 텍스트에 중첩 항목이 중복으로 포함되는 버그가 발생한다.
+    nested_lists = li.find_all(["ul", "ol"], recursive=False)
+    detached_nested = [n.extract() for n in nested_lists]
+
     if is_todo:
       checkbox_div = li.find("div", class_=re.compile(r"checkbox"))
       checked = checkbox_div and "checkbox-on" in (checkbox_div.get("class") or [])
-      # 체크박스 div 다음 텍스트가 실제 내용
       plain, formatted = _extract_inline_text(li)
       prefix = "☑ " if checked else "☐ "
-      block = _make_block("text", text=prefix + plain)
-      if formatted != plain:
-        block["formatted_text"] = prefix + formatted
     elif is_numbered:
       plain, formatted = _extract_inline_text(li)
       prefix = f"{idx}. "
-      block = _make_block("text", text=prefix + plain)
-      if formatted != plain:
-        block["formatted_text"] = prefix + formatted
     else:
       plain, formatted = _extract_inline_text(li)
       prefix = "• "
-      block = _make_block("text", text=prefix + plain)
-      if formatted != plain:
-        block["formatted_text"] = prefix + formatted
+
+    block = _make_block("text", text=prefix + plain)
+    if formatted != plain:
+      block["formatted_text"] = prefix + formatted
 
     blocks.append(block)
     report.converted += 1
 
-    # 중첩 리스트 처리
-    nested = li.find(["ul", "ol"], recursive=False)
-    if nested:
+    # 중첩 리스트는 분리된 상태로 재귀 처리
+    for nested in detached_nested:
       blocks.extend(_parse_list(nested, report))
 
   return blocks
@@ -831,13 +830,12 @@ def extract_and_parse_zip(zip_data: bytes) -> ImportResult:
       csv_text = raw.decode("utf-8-sig", errors="replace")
       csv_blocks = _parse_csv_to_blocks(csv_text)
       if csv_blocks:
-        csv_dir = str(PurePosixPath(csv_path).parent)
         csv_stem = PurePosixPath(csv_path).stem
         # UUID 해시 제거 — Notion export는 "제목 UUID해시.csv" 패턴
         csv_title = re.sub(r"\s+[0-9a-f]{32}$", "", csv_stem).strip() or csv_stem
 
-        # 동일 디렉터리의 부모 페이지를 찾아 블록 추가
-        parent_page = _find_parent_page_for_csv(csv_dir, csv_title, pages)
+        # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
+        parent_page = _find_parent_page_for_csv(csv_path, pages)
         if parent_page:
           parent_page["blocks"].extend(csv_blocks)
         else:
@@ -1266,26 +1264,45 @@ def _parse_csv_to_blocks(csv_text: str) -> list[dict[str, Any]]:
 
 
 def _find_parent_page_for_csv(
-  csv_dir: str,
-  csv_title: str,
+  csv_path: str,
   pages: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-  """CSV 파일의 부모 페이지를 찾습니다.
+  """CSV 파일의 부모 페이지를 정확히 찾습니다.
 
-  Notion export에서 CSV 파일은 이를 참조하는 .md 파일과
-  같은 디렉터리 또는 상위 디렉터리에 위치합니다.
+  매칭 우선순위:
+    1. 페이지의 sub_page_links가 csv 경로(또는 파일명)를 참조 — 가장 신뢰 가능
+    2. 같은 폴더에 정확히 하나의 페이지만 존재 — 모호성 없는 케이스
+    3. 매칭 실패 시 None (호출부에서 독립 페이지로 처리)
+
+  Notion export에서 CSV는 부모 .md/.html 페이지의 본문에서 링크되거나,
+  같은 폴더(또는 상위 폴더)에 배치됩니다. 단순히 같은 디렉터리의 첫 페이지를
+  부모로 가정하면 한 폴더에 여러 페이지가 있을 때 잘못된 페이지에 부착됩니다.
   """
-  # 같은 디렉터리의 페이지 중 이름이 유사한 것을 찾음
-  for page in pages:
-    page_dir = str(PurePosixPath(page["path"]).parent)
-    if page_dir == csv_dir:
-      return page
+  csv_filename = PurePosixPath(csv_path).name
+  csv_dir = str(PurePosixPath(csv_path).parent)
 
-  # 상위 디렉터리의 페이지에서 탐색
-  parent_dir = str(PurePosixPath(csv_dir).parent)
+  # 1. sub_page_links 기반 정확 매칭 (URL-decoded 비교)
   for page in pages:
-    page_dir = str(PurePosixPath(page["path"]).parent)
-    if page_dir == parent_dir:
-      return page
+    for link in page.get("sub_page_links", []):
+      link_name = PurePosixPath(unquote(link)).name
+      if link_name == csv_filename:
+        return page
+
+  # 2. 같은 디렉터리에 페이지가 정확히 하나일 때만 부착
+  same_dir_pages = [
+    p for p in pages
+    if str(PurePosixPath(p["path"]).parent) == csv_dir
+  ]
+  if len(same_dir_pages) == 1:
+    return same_dir_pages[0]
+
+  # 3. 상위 디렉터리에 페이지가 정확히 하나일 때만 부착
+  parent_dir = str(PurePosixPath(csv_dir).parent)
+  parent_dir_pages = [
+    p for p in pages
+    if str(PurePosixPath(p["path"]).parent) == parent_dir
+  ]
+  if len(parent_dir_pages) == 1:
+    return parent_dir_pages[0]
 
   return None
