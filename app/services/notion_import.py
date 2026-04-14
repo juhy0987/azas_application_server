@@ -685,31 +685,85 @@ def _read_zip_entry(zf: zipfile.ZipFile, name: str) -> bytes:
     return b"".join(chunks)
 
 
-def _flatten_zip(zip_data: bytes) -> dict[str, bytes]:
+# ── ZIP Bomb 방어 임계치 ────────────────────────────────────────────────────────
+#
+# OWASP Cheat Sheet — Decompression Bomb 대응 권장사항에 따라 다음 항목을 제한:
+#   - 추출 파일 총 개수
+#   - 추출된 데이터 누적 바이트 수
+#   - 단일 엔트리의 비압축 크기
+#   - 압축비 (compressed/uncompressed) — 비정상적으로 높은 압축비 차단
+#   - 중첩 ZIP 재귀 깊이
+#
+# Ref:
+#   - https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+#   - https://owasp.org/www-community/Application_Threat_Modeling
+
+MAX_ZIP_ENTRIES = 100_000
+MAX_TOTAL_UNCOMPRESSED = 2 * 1024 * 1024 * 1024   # 2 GB
+MAX_SINGLE_UNCOMPRESSED = 500 * 1024 * 1024        # 500 MB / 엔트리
+MAX_COMPRESSION_RATIO = 200                        # 비정상 압축비 차단
+MAX_NESTED_ZIP_DEPTH = 4                           # 중첩 ZIP 깊이 제한
+
+
+def _flatten_zip(
+  zip_data: bytes,
+  *,
+  _depth: int = 0,
+  _quota: dict[str, int] | None = None,
+) -> dict[str, bytes]:
   """ZIP 파일 내 모든 파일을 추출합니다. 내부 ZIP도 재귀적으로 해제합니다.
 
   Notion export ZIP은 대용량 export 시 내부에 Part-N.zip 파일을
   포함할 수 있습니다. 이 함수는 모든 중첩 ZIP을 자동으로 해제하여
   최종 콘텐츠 파일만 반환합니다.
 
+  ZIP Bomb 방어:
+    - 엔트리 개수, 총 비압축 크기, 단일 엔트리 크기, 압축비, 중첩 깊이를 제한
+    - 한도 초과 시 ValueError를 발생시켜 import 자체를 중단
+
   Args:
     zip_data: ZIP 파일의 바이트 데이터.
+    _depth: 내부 호출 — 현재 재귀 깊이.
+    _quota: 내부 호출 — 누적 카운터 ({"entries": int, "bytes": int}).
 
   Returns:
     {파일경로: 바이트데이터} dict. 디렉터리 엔트리와 __MACOSX는 제외됨.
 
   Raises:
-    ValueError: 유효하지 않은 ZIP 파일인 경우.
+    ValueError: 유효하지 않은 ZIP이거나 안전 임계치 초과인 경우.
   """
+  if _depth > MAX_NESTED_ZIP_DEPTH:
+    raise ValueError(f"ZIP 중첩 깊이가 {MAX_NESTED_ZIP_DEPTH}를 초과합니다.")
+
   if not zipfile.is_zipfile(BytesIO(zip_data)):
     raise ValueError("유효하지 않은 ZIP 파일입니다.")
+
+  if _quota is None:
+    _quota = {"entries": 0, "bytes": 0}
 
   result: dict[str, bytes] = {}
 
   with zipfile.ZipFile(BytesIO(zip_data), "r") as zf:
-    for name in zf.namelist():
+    for info in zf.infolist():
+      name = info.filename
       if name.endswith("/") or "__MACOSX" in name:
         continue
+
+      # 사전 메타데이터 검증 — 데이터 읽기 전에 차단
+      if info.file_size > MAX_SINGLE_UNCOMPRESSED:
+        raise ValueError(
+          f"단일 엔트리 크기({info.file_size} bytes)가 허용치를 초과합니다: {name}"
+        )
+      if info.compress_size > 0:
+        ratio = info.file_size / info.compress_size
+        if ratio > MAX_COMPRESSION_RATIO:
+          raise ValueError(
+            f"비정상적인 압축비({ratio:.0f}:1)가 감지되었습니다: {name}"
+          )
+
+      _quota["entries"] += 1
+      if _quota["entries"] > MAX_ZIP_ENTRIES:
+        raise ValueError(f"ZIP 엔트리 개수가 {MAX_ZIP_ENTRIES}를 초과합니다.")
 
       try:
         data = _read_zip_entry(zf, name)
@@ -717,11 +771,20 @@ def _flatten_zip(zip_data: bytes) -> dict[str, bytes]:
         logger.error("ZIP 엔트리 읽기 실패: %s — %s", name, exc)
         continue
 
-      # 내부 ZIP 파일 감지 → 재귀 추출
+      _quota["bytes"] += len(data)
+      if _quota["bytes"] > MAX_TOTAL_UNCOMPRESSED:
+        raise ValueError(
+          f"ZIP 비압축 누적 크기가 {MAX_TOTAL_UNCOMPRESSED // (1024 * 1024)} MB를 초과합니다."
+        )
+
+      # 내부 ZIP 파일 감지 → 재귀 추출 (동일 quota 공유)
       if name.lower().endswith(".zip") and zipfile.is_zipfile(BytesIO(data)):
         try:
-          inner = _flatten_zip(data)
+          inner = _flatten_zip(data, _depth=_depth + 1, _quota=_quota)
           result.update(inner)
+        except ValueError:
+          # ZIP Bomb 임계치 초과는 상위로 전파
+          raise
         except Exception as exc:
           logger.error("내부 ZIP 추출 실패: %s — %s", name, exc)
       else:

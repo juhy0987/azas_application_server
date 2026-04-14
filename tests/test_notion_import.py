@@ -925,6 +925,39 @@ class TestNestedZip:
     assert len(result.pages) == 1
     assert result.pages[0]["title"] == "CRC Test"
 
+  def test_nested_zip_depth_limit(self):
+    """과도한 중첩 ZIP은 차단합니다 (ZIP Bomb 방어)."""
+    from app.services import notion_import as ni
+
+    # MAX_NESTED_ZIP_DEPTH + 2 단계의 중첩 ZIP 생성
+    payload = b"# Inner\n\nContent"
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as zf:
+      zf.writestr("page.md", payload)
+    payload = inner.getvalue()
+
+    for _ in range(ni.MAX_NESTED_ZIP_DEPTH + 2):
+      buf = io.BytesIO()
+      with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("nested.zip", payload)
+      payload = buf.getvalue()
+
+    with pytest.raises(ValueError, match="중첩 깊이"):
+      ni._flatten_zip(payload)
+
+  def test_zip_compression_ratio_limit(self):
+    """비정상적인 압축비는 차단합니다 (ZIP Bomb 방어)."""
+    from app.services import notion_import as ni
+
+    # 1MB 영(0) 바이트 데이터를 ZIP — 매우 높은 압축비
+    huge_zeros = b"\x00" * (1024 * 1024)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+      zf.writestr("zeros.bin", huge_zeros)
+
+    with pytest.raises(ValueError, match="압축비"):
+      ni._flatten_zip(buf.getvalue())
+
   def test_nested_zip_with_images(self):
     """이중 ZIP에서 이미지를 추출합니다."""
     fake_png = b"\x89PNG" + b"\x00" * 50
