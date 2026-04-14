@@ -901,6 +901,12 @@ def extract_and_parse_zip(zip_data: bytes) -> ImportResult:
       if db_block is None:
         continue
 
+      # 동반 row 페이지를 db_row children 으로 흡수 (이슈 #69: 중복 생성 방지)
+      # ※ 부모 매칭보다 먼저 수행해야 pages 리스트에서 row 페이지가 빠진
+      #   상태로 parent 후보를 평가한다 (동일 디렉터리 단일 페이지 fallback
+      #   로직이 row 페이지를 부모로 오판하지 않도록).
+      _absorb_row_pages_into_database(csv_path, db_block, pages)
+
       # 부모 페이지 매칭: sub_page_links 우선 → 디렉터리 fallback
       parent_page = _find_parent_page_for_csv(csv_path, pages)
       if parent_page:
@@ -1425,6 +1431,62 @@ def _parse_csv_to_database(csv_text: str, title: str) -> dict[str, Any] | None:
     "columns": columns,
     "children": db_rows,
   }
+
+
+def _absorb_row_pages_into_database(
+  csv_path: str,
+  db_block: dict[str, Any],
+  pages: list[dict[str, Any]],
+) -> None:
+  """CSV와 동반된 row .md 파일을 db_row children으로 흡수한다.
+
+  Notion은 데이터베이스를 두 가지 아티팩트로 export한다:
+    1. 요약 CSV — `Tasks <uuid>.csv`
+    2. 행 상세 페이지 — `Tasks <uuid>/<Row Title> <uuid>.md`
+
+  기존 import 로직은 두 아티팩트를 독립적으로 처리하여 동일 행이
+  (a) 부모 페이지의 하위 PageBlock 과 (b) database 블록의 db_row 로
+  중복 생성되는 문제가 있었다. 본 함수는 CSV 동반 디렉터리에 속한
+  row 페이지를 찾아 매칭된 db_row의 children 으로 이전하고,
+  `pages` 리스트에서 해당 row 페이지를 제거하여 중복을 제거한다.
+
+  매칭 규칙:
+    - CSV 경로의 stem(UUID 해시 포함)과 동일한 이름의 자매 디렉터리에
+      위치한 페이지만 후보로 한다.
+    - 후보 페이지의 title == db_row 의 title 일 때 매칭으로 본다
+      (Notion export 의 title 은 UUID 해시가 제거된 순수 제목).
+
+  Args:
+    csv_path: ZIP 내부의 CSV 경로 (예: "Root/Tasks abc...xyz.csv").
+    db_block: `_parse_csv_to_database` 결과 dict. 매칭된 db_row의
+      children 가 갱신된다.
+    pages: 현재까지 파싱된 페이지 리스트. 흡수된 페이지는 제거된다.
+  """
+  csv_pure = PurePosixPath(csv_path)
+  companion_dir = str(csv_pure.parent / csv_pure.stem)
+
+  # 후보: 동반 디렉터리 바로 아래에 있는 페이지만 (더 깊은 중첩은 제외)
+  # — title → page (중복 title이 있을 수 있으나 Notion UUID로 분리되므로 희귀)
+  title_to_page: dict[str, dict[str, Any]] = {}
+  for p in pages:
+    if str(PurePosixPath(p["path"]).parent) == companion_dir:
+      title_to_page.setdefault(p["title"], p)
+
+  if not title_to_page:
+    return
+
+  consumed_paths: set[str] = set()
+  for db_row in db_block["children"]:
+    matched = title_to_page.get(db_row["title"])
+    if matched is None:
+      continue
+    # row 페이지의 blocks 를 db_row 의 children 으로 이전한다.
+    # (db_row 는 PageBlock 파생이므로 자체 문서에 블록이 속한다)
+    db_row["children"] = matched["blocks"]
+    consumed_paths.add(matched["path"])
+
+  if consumed_paths:
+    pages[:] = [p for p in pages if p["path"] not in consumed_paths]
 
 
 def _find_parent_page_for_csv(

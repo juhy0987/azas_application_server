@@ -1080,6 +1080,69 @@ class TestCsvParsing:
     assert [c["name"] for c in db_blocks[0]["columns"]] == ["Task", "Status"]
     assert len(db_blocks[0]["children"]) == 1
 
+  def test_row_pages_absorbed_into_db_rows(self):
+    """CSV 동반 row .md 파일이 db_row의 children으로 흡수된다.
+
+    동일 행이 부모 페이지의 하위 PageBlock 과 database 의 db_row 로
+    중복 생성되면 안 된다 (이슈 #69).
+    """
+    uuid_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    row_uuid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    md_parent = f"# Project\n\n- [Tasks](Tasks%20{uuid_hash}.csv)"
+    md_row_a = "# Task A\n\nDetail for A"
+    csv_content = "Name,Status\nTask A,Done\nTask B,Todo"
+    zip_data = _make_zip({
+      "Root/page.md": md_parent,
+      f"Root/Tasks {uuid_hash}.csv": csv_content,
+      f"Root/Tasks {uuid_hash}/Task A {row_uuid}.md": md_row_a,
+    })
+    result = extract_and_parse_zip(zip_data)
+
+    # row 페이지는 pages 리스트에서 제거되어 있어야 한다
+    remaining_paths = [p["path"] for p in result.pages]
+    assert not any("Task A" in path for path in remaining_paths)
+
+    # database 블록의 Task A 행 children 에 원본 블록이 흡수되어야 한다
+    db_blocks = [b for p in result.pages for b in p["blocks"]
+                 if b.get("type") == "database"]
+    assert len(db_blocks) == 1
+    rows_by_title = {r["title"]: r for r in db_blocks[0]["children"]}
+    assert set(rows_by_title) == {"Task A", "Task B"}
+    # 흡수된 Task A는 "Detail for A" 텍스트 블록을 children 으로 가진다
+    assert any(
+      b.get("type") == "text" and "Detail for A" in b.get("text", "")
+      for b in rows_by_title["Task A"]["children"]
+    )
+    # 매칭 페이지가 없는 Task B 는 children 이 비어있다 (신규 생성)
+    assert rows_by_title["Task B"]["children"] == []
+
+  def test_row_pages_merged_end_to_end(self, client):
+    """API 전체 플로우: row 페이지가 db_row 에만 존재하고 트리에 중복되지 않는다."""
+    uuid_hash = "cccccccccccccccccccccccccccccccc"
+    row_uuid = "dddddddddddddddddddddddddddddddd"
+    zip_data = _make_zip({
+      "Root/page.md": f"# Parent\n\n- [Tasks](Tasks%20{uuid_hash}.csv)",
+      f"Root/Tasks {uuid_hash}.csv": "Name,Score\nAlice,100",
+      f"Root/Tasks {uuid_hash}/Alice {row_uuid}.md": "# Alice\n\nhello",
+    })
+    resp = client.post(
+      "/api/import/notion",
+      files={"file": ("export.zip", zip_data, "application/zip")},
+    )
+    assert resp.status_code == 201
+    doc = client.get(f"/api/documents/{resp.json()['document_id']}").json()
+
+    # 루트 문서에는 page 블록(=row 페이지 참조)이 없어야 한다 — db 블록 하나만.
+    block_types = [b["type"] for b in doc["blocks"]]
+    assert "database" in block_types
+    assert "page" not in block_types
+
+    # db_row 는 있고, 그 문서를 조회하면 "hello" 블록이 존재한다.
+    db = next(b for b in doc["blocks"] if b["type"] == "database")
+    assert len(db["rows"]) == 1
+    row_doc = client.get(f"/api/documents/{db['rows'][0]['document_id']}").json()
+    assert any("hello" in b.get("text", "") for b in row_doc["blocks"])
+
   def test_all_csv_excluded(self):
     """_all.csv 파일은 중복이므로 제외된다."""
     zip_data = _make_zip({
