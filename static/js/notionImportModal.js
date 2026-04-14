@@ -118,6 +118,65 @@ function ensureDialog() {
   return dialog;
 }
 
+/**
+ * 변환 리포트 영역의 DOM을 안전하게 구성합니다.
+ * 모든 동적 값은 textContent로 삽입되어 XSS 위험이 없습니다.
+ * @param {{title: string, total_pages: number}} result
+ * @param {{converted: number, total_elements: number, fallback: number, skipped: number, warnings: string[]}} r
+ * @returns {DocumentFragment}
+ */
+function buildReport(result, r) {
+  const frag = document.createDocumentFragment();
+
+  const header = document.createElement("div");
+  header.className = "notion-import-report-header";
+  header.textContent = "변환 완료";
+
+  const body = document.createElement("div");
+  body.className = "notion-import-report-body";
+
+  const row = (label, value, extraClass = "") => {
+    const div = document.createElement("div");
+    div.className = "notion-import-report-row" + (extraClass ? ` ${extraClass}` : "");
+    const labelEl = document.createElement("span");
+    labelEl.textContent = label;
+    const valueEl = document.createElement("strong");
+    valueEl.textContent = value;
+    div.append(labelEl, valueEl);
+    return div;
+  };
+
+  body.append(
+    row("생성된 문서", String(result.title ?? "")),
+    row("총 페이지", `${result.total_pages}개`),
+    row("변환 요소", `${r.converted} / ${r.total_elements}`),
+  );
+
+  if (r.fallback > 0) {
+    body.append(row("Fallback 처리", `${r.fallback}건`, "notion-import-report-warn"));
+  }
+  if (r.skipped > 0) {
+    body.append(row("건너뜀", `${r.skipped}건`, "notion-import-report-skip"));
+  }
+  if (r.warnings.length > 0) {
+    const details = document.createElement("details");
+    details.className = "notion-import-report-warnings";
+    const summary = document.createElement("summary");
+    summary.textContent = `경고 (${r.warnings.length}건)`;
+    const list = document.createElement("ul");
+    r.warnings.forEach((w) => {
+      const item = document.createElement("li");
+      item.textContent = String(w);
+      list.appendChild(item);
+    });
+    details.append(summary, list);
+    body.appendChild(details);
+  }
+
+  frag.append(header, body);
+  return frag;
+}
+
 /** @type {File|null} */
 let selectedFile = null;
 
@@ -215,41 +274,12 @@ async function handleSubmit() {
     progressFill.style.width = "100%";
     progressText.textContent = "완료!";
 
-    // 변환 리포트 표시
+    // 변환 리포트 표시 — DOM API로 구성하여 사용자 제어 콘텐츠로 인한 XSS 방지
+    // (Notion 페이지 제목 및 경고 메시지에 HTML 메타문자가 포함될 수 있음)
+    // Ref: OWASP DOM-based XSS Prevention Cheat Sheet
     const r = result.report;
     report.hidden = false;
-    report.innerHTML = `
-      <div class="notion-import-report-header">변환 완료</div>
-      <div class="notion-import-report-body">
-        <div class="notion-import-report-row">
-          <span>생성된 문서</span>
-          <strong>${result.title}</strong>
-        </div>
-        <div class="notion-import-report-row">
-          <span>총 페이지</span>
-          <strong>${result.total_pages}개</strong>
-        </div>
-        <div class="notion-import-report-row">
-          <span>변환 요소</span>
-          <strong>${r.converted} / ${r.total_elements}</strong>
-        </div>
-        ${r.fallback > 0 ? `
-        <div class="notion-import-report-row notion-import-report-warn">
-          <span>Fallback 처리</span>
-          <strong>${r.fallback}건</strong>
-        </div>` : ""}
-        ${r.skipped > 0 ? `
-        <div class="notion-import-report-row notion-import-report-skip">
-          <span>건너뜀</span>
-          <strong>${r.skipped}건</strong>
-        </div>` : ""}
-        ${r.warnings.length > 0 ? `
-        <details class="notion-import-report-warnings">
-          <summary>경고 (${r.warnings.length}건)</summary>
-          <ul>${r.warnings.map((w) => `<li>${w}</li>`).join("")}</ul>
-        </details>` : ""}
-      </div>
-    `;
+    report.replaceChildren(buildReport(result, r));
 
     // 버튼 상태 변경
     submitBtn.textContent = "문서 열기";
