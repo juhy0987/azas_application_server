@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -327,6 +328,201 @@ class SQLiteBlockRepository:
     data = self._build_child_document_row(parent_id)
     self._session.commit()
     return data
+
+  # ── Notion Import 영속화 ────────────────────────────────────────────────────
+
+  def import_pages(
+    self,
+    pages: list[dict[str, Any]],
+    image_url_resolver: "callable[[dict[str, Any]], None] | None" = None,
+  ) -> dict[str, Any]:
+    """파싱된 Notion 페이지 리스트를 문서/블록 트리로 영속화합니다.
+
+    트리 구성:
+      - 첫 번째 페이지 → 루트 문서
+      - 나머지 페이지 → 경로 기반으로 부모 문서를 결정하고 부모 문서에
+        PageBlock으로 연결
+
+    성능/안정성 보장:
+      - 블록 저장은 명시적 스택을 사용한 반복문으로 처리 (재귀 깊이 제한 회피)
+      - 부모 문서별 position 카운터를 메모리에 캐싱 (max() 쿼리 N+1 방지)
+      - 페이지·블록 추가는 단일 트랜잭션에서 수행
+
+    Args:
+      pages: 파싱된 페이지 dict 리스트.
+        각 항목: {"path": str, "title": str, "blocks": list, "sub_page_links": list}
+      image_url_resolver: 블록 트리의 이미지 URL을 실제 저장 경로로 갱신하는
+        선택적 콜백. import 호출자가 이미지 처리(저장/리사이즈) 정책을 주입하기
+        위해 사용한다.
+
+    Returns:
+      {"id": root_doc_id, "title": root_title}
+    """
+    if not pages:
+      raise ValueError("import할 페이지가 없습니다.")
+
+    # path → document_id 매핑 (부모 추정용)
+    path_to_doc_id: dict[str, str] = {}
+    # (document_id, parent_block_id|None) → 다음 position 카운터
+    position_cursor: dict[tuple[str, str | None], int] = {}
+
+    first_page = pages[0]
+    root_id = self._add_imported_document(
+      first_page["title"], parent_id=None,
+    )
+    path_to_doc_id[first_page["path"]] = root_id
+
+    self._persist_imported_blocks(
+      root_id, first_page["blocks"], position_cursor, image_url_resolver,
+    )
+
+    for page in pages[1:]:
+      parent_doc_id = self._resolve_import_parent(
+        page["path"], path_to_doc_id, root_id,
+      )
+      child_doc_id = self._add_imported_document(
+        page["title"], parent_id=parent_doc_id,
+      )
+      path_to_doc_id[page["path"]] = child_doc_id
+
+      self._add_imported_page_block(
+        parent_doc_id, child_doc_id, position_cursor,
+      )
+      self._persist_imported_blocks(
+        child_doc_id, page["blocks"], position_cursor, image_url_resolver,
+      )
+
+    self._session.commit()
+    return {"id": root_id, "title": first_page["title"]}
+
+  def _add_imported_document(self, title: str, parent_id: str | None) -> str:
+    """Import 전용 — DocumentRow를 세션에 추가하고 id를 반환한다 (commit 안 함)."""
+    doc_id = str(uuid.uuid4())
+    self._session.add(DocumentRow(
+      id=doc_id,
+      title=title or "Untitled",
+      subtitle="",
+      parent_id=parent_id,
+    ))
+    self._session.flush()
+    return doc_id
+
+  def _add_imported_page_block(
+    self,
+    parent_doc_id: str,
+    child_doc_id: str,
+    position_cursor: dict[tuple[str, str | None], int],
+  ) -> None:
+    """부모 문서에 하위 페이지를 가리키는 PageBlock을 추가한다.
+
+    position은 카운터 캐시에서 가져오며, 캐시 미스 시에만 DB에서 조회한다.
+    """
+    cursor_key = (parent_doc_id, None)
+    next_pos = self._next_position(cursor_key, position_cursor)
+
+    block_id = str(uuid.uuid4())
+    content = json.dumps(
+      {"document_id": child_doc_id, "is_reference": False},
+      ensure_ascii=False,
+    )
+    self._session.add(BlockRow(
+      id=block_id,
+      document_id=parent_doc_id,
+      parent_block_id=None,
+      type="page",
+      position=next_pos,
+      content_json=content,
+    ))
+
+  def _persist_imported_blocks(
+    self,
+    document_id: str,
+    blocks: list[dict[str, Any]],
+    position_cursor: dict[tuple[str, str | None], int],
+    image_url_resolver: "callable[[dict[str, Any]], None] | None",
+  ) -> None:
+    """블록 트리를 명시적 스택 기반 반복으로 영속화한다.
+
+    재귀 호출을 사용하지 않기 때문에 매우 깊은 Notion 페이지(중첩 토글 등)도
+    파이썬 재귀 깊이 제한에 영향받지 않는다.
+    """
+    # 스택에 (document_id, parent_block_id, blocks_list)를 푸시
+    stack: list[tuple[str, str | None, list[dict[str, Any]]]] = [
+      (document_id, None, blocks),
+    ]
+
+    while stack:
+      doc_id, parent_block_id, current_blocks = stack.pop()
+      cursor_key = (doc_id, parent_block_id)
+
+      for block in current_blocks:
+        if image_url_resolver and block.get("type") == "image":
+          image_url_resolver(block)
+
+        block_id = block.get("id") or str(uuid.uuid4())
+        block_type = block["type"]
+        children = block.pop("children", None)
+
+        # content_json — id/type 컬럼은 제외
+        content = {k: v for k, v in block.items() if k not in ("id", "type")}
+        next_pos = self._next_position(cursor_key, position_cursor)
+
+        self._session.add(BlockRow(
+          id=block_id,
+          document_id=doc_id,
+          parent_block_id=parent_block_id,
+          type=block_type,
+          position=next_pos,
+          content_json=json.dumps(content, ensure_ascii=False),
+        ))
+
+        if children:
+          stack.append((doc_id, block_id, children))
+
+  def _next_position(
+    self,
+    cursor_key: tuple[str, str | None],
+    position_cursor: dict[tuple[str, str | None], int],
+  ) -> int:
+    """캐시된 position 카운터를 1 증가시켜 반환한다.
+
+    캐시에 키가 없으면 빈 컨테이너로 간주(=0)하고 1부터 시작한다.
+    Notion import는 항상 빈 문서에 새 블록을 추가하므로 DB 조회가 불필요하다.
+    """
+    next_pos = position_cursor.get(cursor_key, 0) + 1
+    position_cursor[cursor_key] = next_pos
+    return next_pos
+
+  def _resolve_import_parent(
+    self,
+    page_path: str,
+    path_to_doc_id: dict[str, str],
+    root_id: str,
+  ) -> str:
+    """페이지 경로 기반으로 부모 문서 id를 결정한다.
+
+    Notion export 디렉터리 구조:
+      Root.html / Root.md
+      Root/
+        Child.html / Child.md
+        Child/
+          GrandChild.html / GrandChild.md
+
+    부모 페이지의 stem(확장자 제외 파일명)은 자식 디렉터리 이름과 일치한다.
+    """
+    parts = PurePosixPath(page_path).parts
+    if len(parts) < 2:
+      return root_id
+
+    parent_dir_name = parts[-2]
+    for registered_path, doc_id in path_to_doc_id.items():
+      reg_stem = PurePosixPath(registered_path).stem
+      if reg_stem == parent_dir_name:
+        return doc_id
+      if str(PurePosixPath(*parts[:-1])).endswith(reg_stem):
+        return doc_id
+
+    return root_id
 
   def _build_child_document_row(self, parent_id: str, source_block_id: str | None = None) -> dict:
     """Add a child DocumentRow to the session without committing.
