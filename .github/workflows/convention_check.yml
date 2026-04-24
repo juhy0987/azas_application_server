@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: ["**"]
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   # CI 강제: 커밋 메시지
