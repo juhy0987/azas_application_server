@@ -61,18 +61,18 @@ jobs:
       - name: Validate PR title
         run: |
           title="${{ github.event.pull_request.title }}"
-          pattern='^\[(FEAT|FIX|REFAC|DOCS|CHORE)#\d+\]'
+          pattern='^\[(FEAT|FIX|REFAC|DOCS|CHORE)#[0-9]+\]'
 
           if ! echo "$title" | grep -qE "$pattern"; then
             {
               echo "## ❌ PR Title Lint 실패"
-              echo "PR 타이틀이 \`[카테고리#번호]: 설명\` 형식을 따르지 않습니다."
+              echo "PR 타이틀이 \`[카테고리#번호] 설명\` 형식을 따르지 않습니다."
               echo ""
               echo "현재 타이틀: \`$title\`"
               echo ""
               echo "허용 카테고리: \`FEAT\` \`FIX\` \`REFAC\` \`CHORE\`"
               echo ""
-              echo "예시: \`[FEAT#15]: Kafka consumer pool을 활용한 크롤러 워커 구현\`"
+              echo "예시: \`[FEAT#15] Kafka consumer pool을 활용한 크롤러 워커 구현\`"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
