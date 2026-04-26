@@ -27,7 +27,7 @@ jobs:
             ${{ secrets.SSH_PUBLISHER }}@${{ secrets.SSH_HOST }} << 'EOF'
           set -e
 
-          cd /home/${{ secrets.SSH_PUBLISHER }}/WK_test_infra/ansible
+          cd /home/${{ secrets.SSH_PUBLISHER }}/azas_infra_setup/ansible
 
           ansible-playbook -i hosts.ini service_deployment.yml
 
