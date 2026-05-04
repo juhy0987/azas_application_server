@@ -33,5 +33,5 @@ def index(request: Request) -> HTMLResponse:
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
-    # DB 연결 확인 로직 등을 추가하면 더 완벽합니다.
-    return {"status": "ok"}
+  # DB 연결 확인 로직 등을 추가하면 더 완벽합니다.
+  return {"status": "ok"}
