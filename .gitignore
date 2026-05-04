@@ -19,3 +19,6 @@ uploads/
 static/files/
 
 .env
+
+nohup.out
+venv/

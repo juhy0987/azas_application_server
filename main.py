@@ -30,3 +30,8 @@ app.include_router(notion_import.router)
 def index(request: Request) -> HTMLResponse:
   """Render the notion-like block page."""
   return templates.TemplateResponse(request=request, name="index.html")
+
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health_check():
+  # DB 연결 확인 로직 등을 추가하면 더 완벽합니다.
+  return {"status": "ok"}
