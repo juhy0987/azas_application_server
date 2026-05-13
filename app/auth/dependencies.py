@@ -1,36 +1,42 @@
 """인증 관련 FastAPI 의존성.
 
-라우터에서 ``Depends(require_admin)``으로 쓰기 권한을 보호한다.
-인증되지 않은 요청은 HTTP 403 Forbidden을 반환한다.
+라우터에서 ``Depends(require_admin)`` 으로 쓰기 권한을 보호한다.
+``Authorization: Bearer <JWT>`` 헤더를 요구하며, 부재/만료 시 401 반환.
 
-Ref: https://fastapi.tiangolo.com/tutorial/dependencies/
-     https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+Ref:
+  https://fastapi.tiangolo.com/tutorial/security/oauth2-jwt/
+  https://datatracker.ietf.org/doc/html/rfc6750
 """
 from __future__ import annotations
 
-from fastapi import Cookie, HTTPException
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.auth.config import SESSION_COOKIE_NAME
 from app.auth.service import validate_session
+
+# auto_error=False — 헤더 부재 시 직접 한국어 메시지로 응답
+_bearer = HTTPBearer(auto_error=False)
 
 
 def require_admin(
-  session_token: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
+  credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> str:
   """관리자 인증 여부를 확인하는 의존성.
 
-  인증된 사용자의 username을 반환한다.
-  세션 쿠키가 없거나 유효하지 않으면 403을 발생시킨다.
+  Authorization: Bearer <JWT> 헤더의 토큰을 검증.
+  유효한 사용자의 username 을 반환한다.
   """
-  if session_token is None:
+  if credentials is None or not credentials.credentials:
     raise HTTPException(
-      status_code=403,
+      status_code=status.HTTP_401_UNAUTHORIZED,
       detail="로그인이 필요합니다.",
+      headers={"WWW-Authenticate": "Bearer"},
     )
-  username = validate_session(session_token)
+  username = validate_session(credentials.credentials)
   if username is None:
     raise HTTPException(
-      status_code=403,
+      status_code=status.HTTP_401_UNAUTHORIZED,
       detail="세션이 만료되었습니다. 다시 로그인해 주세요.",
+      headers={"WWW-Authenticate": "Bearer"},
     )
   return username

@@ -48,8 +48,8 @@ def repo(session):
 def client(engine):
   """TestClient with in-memory DB and admin session pre-authenticated.
 
-  기존 테스트는 모두 관리자 권한이 필요한 쓰기 작업을 포함하므로,
-  테스트 시작 시 자동으로 로그인하여 세션 쿠키를 설정한다.
+  JWT Bearer 토큰을 자동 로그인으로 발급받아 TestClient 의 기본 헤더에 부착.
+  이후 모든 요청에 Authorization: Bearer <token> 이 자동 주입된다.
   """
   from main import app
   from app.dependencies import get_repository
@@ -60,10 +60,14 @@ def client(engine):
 
   app.dependency_overrides[get_repository] = _override
   with TestClient(app) as c:
-    # 관리자 로그인 — 세션 쿠키가 TestClient에 자동 저장됨
-    login_res = c.post("/api/auth/login", json={"username": "admin", "password": "admin1234"})
+    login_res = c.post(
+      "/api/auth/login",
+      json={"username": "admin", "password": "admin1234"},
+    )
     assert login_res.status_code == 200, (
       f"Admin auto-login failed: status={login_res.status_code}, body={login_res.text}"
     )
+    token = login_res.json()["access_token"]
+    c.headers["Authorization"] = f"Bearer {token}"
     yield c
   app.dependency_overrides.clear()

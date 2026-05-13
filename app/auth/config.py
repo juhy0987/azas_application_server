@@ -1,12 +1,18 @@
 """관리자 인증 설정.
 
-환경 변수를 통해 관리자 자격 증명과 세션 정책을 설정한다.
-``ADMIN_PASSWORD``가 설정되지 않으면 프로세스 시작 시 임의 비밀번호를
-생성하고 표준 출력에 경고를 표시한다.
+JWT (HS256) 기반 stateless 토큰 인증.
 
-Ref: https://fastapi.tiangolo.com/advanced/settings/
-     https://docs.python.org/3/library/os.html#os.environ
-     https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+환경 변수:
+  ADMIN_USERNAME      관리자 ID (기본 'admin')
+  ADMIN_PASSWORD      관리자 비밀번호 (미설정 시 부팅마다 난수 — 경고 출력)
+  JWT_SECRET          JWT 서명 비밀키 (미설정 시 프로세스마다 난수,
+                      재기동 시 발급 토큰 전부 무효화 — 안정 운영을 위해 반드시 주입)
+  JWT_EXPIRY_SECONDS  토큰 만료 시간 (기본 3600초)
+
+Ref:
+  https://fastapi.tiangolo.com/advanced/settings/
+  https://datatracker.ietf.org/doc/html/rfc7519
+  https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
 """
 from __future__ import annotations
 
@@ -28,13 +34,17 @@ else:
     file=sys.stderr,
   )
 
-# 세션 정책
-SESSION_COOKIE_NAME: str = "session_token"
-SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "3600"))  # 기본 1시간(초)
+# JWT 설정
+JWT_ALGORITHM: str = "HS256"
+JWT_EXPIRY_SECONDS: int = int(os.getenv("JWT_EXPIRY_SECONDS", "3600"))
 
-# 쿠키 보안 설정
-# Ref: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#security
-COOKIE_HTTPONLY: bool = True
-COOKIE_SAMESITE: str = "lax"
-# HTTPS 환경에서만 True로 설정 (개발 환경에서는 False)
-COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+_jwt_secret_from_env = os.getenv("JWT_SECRET")
+if _jwt_secret_from_env:
+  JWT_SECRET: str = _jwt_secret_from_env
+else:
+  JWT_SECRET = secrets.token_urlsafe(32)
+  print(
+    "[WARNING] JWT_SECRET 환경변수가 설정되지 않았습니다. "
+    "프로세스마다 난수 비밀키가 사용되어 재기동 시 모든 발급 토큰이 무효화됩니다.",
+    file=sys.stderr,
+  )

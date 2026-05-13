@@ -65,7 +65,9 @@ def file_client(file_engine, tmp_path, monkeypatch):
 
   app.dependency_overrides[get_session] = _override_session
   with TestClient(app) as c:
-    c.post("/api/auth/login", json={"username": "admin", "password": "admin1234"})
+    login_res = c.post("/api/auth/login", json={"username": "admin", "password": "admin1234"})
+    assert login_res.status_code == 200
+    c.headers["Authorization"] = f"Bearer {login_res.json()['access_token']}"
     yield c
   app.dependency_overrides.pop(get_session, None)
 
